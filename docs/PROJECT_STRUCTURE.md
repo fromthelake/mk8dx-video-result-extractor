@@ -1,0 +1,153 @@
+# Project Structure
+
+This document explains the code layout in human terms.
+
+## Big Picture
+
+The project has two main phases:
+
+1. Find the right screenshots inside the video
+2. Read those screenshots and turn them into structured results
+
+## Entry Points
+
+- `mk8dx_video_result_extractor/`
+  - real application package
+  - contains the implementation modules that power the packaged CLI
+- `pyproject.toml`
+  - defines the packaged `mk8-local-play` command
+
+## Extraction Modules
+
+- `mk8dx_video_result_extractor/extract_frames.py`
+  - extraction orchestrator
+  - loads videos, scales the image, coordinates detection, and writes extracted frames
+- `mk8dx_video_result_extractor/extract_initial_scan.py`
+  - fast first scan over the video
+  - looks for three anchor screens:
+    - score screen
+    - track-name screen
+    - race-number screen
+  - uses the left-side row-box position prefix as the real score trigger
+  - can locally confirm borderline score candidates with a narrow offset search
+  - race-number detection supports both the legacy and Dutch template/ROI variants
+- `mk8dx_video_result_extractor/extract_score_screen_selection.py`
+  - takes rough score detections and chooses the best race-score and total-score frames
+  - expands RaceScore bundles when a real 12th-place template is seen
+  - confirms TotalScore only after a sustained score-signal drop, with tie-aware rank acceptance for rows `1..6`
+- `mk8dx_video_result_extractor/extract_video_io.py`
+  - shared helpers for frame reads, seeks, and export metadata
+- `mk8dx_video_result_extractor/extract_common.py`
+  - shared extraction utilities such as scaling, cropping, template matching, and GPU/runtime helpers
+
+## OCR Modules
+
+- `mk8dx_video_result_extractor/extract_text.py`
+  - OCR/export orchestrator
+  - groups screenshots into races and coordinates the OCR pipeline
+  - runs player-level character-family refinement with aligned alpha-cutout color scoring before the Mii fallback
+- `mk8dx_video_result_extractor/ocr_scoreboard_consensus.py`
+  - reads several nearby score frames
+  - combines them into one best guess
+  - maps race-score rows to total-score rows
+  - performs the main aligned alpha-cutout character template matching
+- `mk8dx_video_result_extractor/ocr_name_matching.py`
+  - fuzzy matching for noisy OCR player names across races
+  - chooses a canonical player spelling for each row history
+  - resolves duplicate-name identity chains and only marks the truly ambiguous final rows
+- `mk8dx_video_result_extractor/ocr_session_validation.py`
+  - computes running totals
+  - detects likely new sessions inside one source video
+  - flags rows that need manual review
+  - recomputes `Position After Race` from validated totals with stable tie-breaks
+- `mk8dx_video_result_extractor/ocr_export.py`
+  - writes the final workbook
+  - builds the user-facing OCR completion summary
+  - reports player-count and identity-split investigation summaries
+- `mk8dx_video_result_extractor/ocr_common.py`
+  - shared OCR frame and metadata helpers
+
+## Runtime And Configuration
+
+- `mk8dx_video_result_extractor/app_runtime.py`
+  - loads `config/app_config.json`
+  - checks runtime dependencies
+  - detects OpenCV GPU/OpenCL availability
+- `config/app_config.json`
+  - tracked runtime config used by setup and local runs
+- `mk8dx_video_result_extractor/console_logging.py`
+  - consistent operator-style logging and resource reporting
+
+## Game Catalog
+
+- `database/firestore-export.json`
+  - local source export used to derive the compact catalog
+- `reference_data/game_catalog.json`
+  - single source of truth for cups, tracks, and characters
+- `tools/build_game_catalog.py`
+  - rebuilds the compact catalog from the Firestore export
+- `mk8dx_video_result_extractor/game_catalog.py`
+  - loader around the compact catalog
+- `mk8dx_video_result_extractor/track_metadata.py`
+  - compatibility wrapper for existing track tuple consumers
+
+## Assets And User Data
+
+- `assets/templates/`
+  - detection templates used during extraction
+- `assets/gui/`
+  - GUI background image
+- `assets/character/`
+  - canonical character template cutouts used by OCR
+- `assets/cup/`
+  - cup icons used by tournament analytics/export pages
+- `assets/track/`
+  - canonical track image set indexed as `0..95` (aligned with `trackIndex`)
+- `Input_Videos/`
+  - user-provided source videos
+- `Output_Results/Frames/`
+  - extracted screenshots
+- `Output_Results/Debug/`
+  - optional debug output
+- `Output_Results/*_Tournament_Results.xlsx`
+  - timestamped Excel outputs
+- `Output_Results/Debug/*_Tournament_Results_Debug.xlsx`
+  - timestamped debug Excel outputs
+
+## Scripts And Tools
+
+- `scripts/setup_windows.ps1`
+  - first-time Windows setup
+- `scripts/setup_unix.sh`
+  - first-time Linux/macOS setup
+- `docs/LINUX_MACOS_SETUP.md`
+  - short Linux/macOS setup guide
+- `scripts/quick_benchmark.*`
+  - lightweight benchmarking helpers
+- `scripts/release_benchmark.*`
+  - fuller benchmark flow for optimization passes
+- `tools/validate_outputs.py`
+  - compare a current run against a saved baseline
+- `tools/evaluate_character_variant_families.py`
+  - inspect character-family rankings on saved character crops
+- `tools/evaluate_mii_memory_probe.py`
+  - inspect player-specific character memory candidates for Mii fallback research
+- `tools/probe_corrupt_remux_viability.py`
+  - compare corrupt-video preflight before and after a light remux
+- `tools/move_practical_duplicate_candidates_to_exclude.ps1`
+  - apply a reviewed duplicate-video move plan into `Input_Videos/exclude`
+
+## Naming Rules Used In The Codebase
+
+The project now tries to follow these rules:
+
+- file names describe what the file does
+- module names describe a domain, not an implementation accident
+- terms like `initial scan` are preferred over vague labels like `pass1`
+- comments explain intent and tradeoffs, not obvious syntax
+
+That means a junior developer should be able to answer:
+- what phase is this file responsible for
+- what inputs it reads
+- what outputs it produces
+- why the logic exists

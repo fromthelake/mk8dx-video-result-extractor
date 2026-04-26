@@ -1,0 +1,36 @@
+.venv/
+.codex_tmp/
+.pip_tmp/
+__pycache__/
+.idea/
+*.egg-info/
+app_config.json
+file_list.txt
+
+# Local input videos
+Input_Videos/*
+!Input_Videos/.gitkeep
+Input_Videos_Hold/
+
+# Generated outputs
+Output_Results/Frames/*
+!Output_Results/Frames/.gitkeep
+Output_Results/Debug/*
+!Output_Results/Debug/.gitkeep
+Output_Results/Debug/Score_Frames/*
+!Output_Results/Debug/Score_Frames/.gitkeep
+Output_Results/*.xlsx
+Output_Results/*.csv
+Output_Results/*_Tournament_Results.xlsx
+Output_Results/*_Tournament_Results.csv
+Output_Results/*_Tournament_Results_Debug.xlsx
+Output_Results/*_Final_Standings.csv
+Output_Results/_temp_*.xlsx
+
+# Local debug artifacts
+Output_Results/Debug/debug_max_val.csv
+Output_Results/Debug/exported_frame_metadata.csv
+Output_Results/Debug/linking_*.xlsx
+ocr_profile_run.txt
+
+

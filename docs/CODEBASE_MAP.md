@@ -1,0 +1,207 @@
+# Codebase Map
+
+## Summary
+
+This project processes Mario Kart 8 LAN-play recordings into tournament workbooks.
+
+Primary flow:
+1. Read input videos from `Input_Videos/`
+2. Normalize gameplay frames to a fixed `1280x720` working canvas
+3. Detect track/race/score screens
+4. Export frame bundles into `Output_Results/Frames/`
+5. OCR and reconcile names, positions, scores, tracks, cups, and characters
+6. Validate running totals and session boundaries
+7. Export timestamped workbook files into `Output_Results/`
+
+Runtime baseline:
+- Python 3.12 only
+- repo-local `.venv`
+- EasyOCR used for text OCR
+- FFmpeg required for repair and merge flows
+
+## Architecture And Runtime Flow
+
+### Entry points
+
+- `mk8dx_video_result_extractor/main.py`
+  Main CLI and optional Tk GUI entrypoint. Also performs runtime checks, output cleanup, selection scoping, per-run logger reset, runtime-setting persistence, overlap full-run orchestration, a scoped `--debug` override for headless runs, and end-to-end orchestration.
+- `mk8dx_video_result_extractor/console_logging.py`
+  Shared console logger and resource monitor for CLI/GUI output. Owns elapsed-time formatting, summary blocks, resource peaks, and the per-run timer reset behavior.
+- `pyproject.toml`
+  Defines the `mk8-local-play` console script pointing to `mk8dx_video_result_extractor.main:main`.
+
+### Extraction phase
+
+- `mk8dx_video_result_extractor/extract_frames.py`
+  Extraction orchestrator. Loads videos, determines crop/upscale geometry, runs initial scan, runs score-screen selection, exports frames, emits ordered scan confirmations, and builds extraction summaries.
+- `mk8dx_video_result_extractor/extract_initial_scan.py`
+  Fast scan for track-name, race-number, and score-screen anchors. Uses fixed ROIs, segment-based scanning, row-box score detection, a row `2..6` confirmation prefix with optional local offset confirmation for borderline score candidates, and multiple race-number template/ROI variants.
+- `mk8dx_video_result_extractor/extract_score_screen_selection.py`
+  Second pass over score candidates to choose RaceScore and TotalScore frames. Contains FPS-adaptive coarse-to-fine search, 60fps-only detail `step=2` with step-1 safety retry, transition-centered RaceScore bundle export, FPS-scaled timing logic, 12th-place/template recovery, tie-aware sustained-drop logic for TotalScore timing, and cached total-only stable-signature checks during TotalScore frame selection.
+- `mk8dx_video_result_extractor/extract_video_io.py`
+  Shared seek/read/grab helpers, corrupt-video sampling, and FFmpeg repair flow.
+- `mk8dx_video_result_extractor/extract_common.py`
+  Shared extraction constants, scaling, video discovery, and normalization helpers.
+
+### OCR and identity phase
+
+- `mk8dx_video_result_extractor/extract_text.py`
+  OCR orchestrator. Groups exported frames, runs EasyOCR-based text extraction, coordinates consensus building, character-family aligned color refinement, low-res handling, validation, export, and overlap-mode consumption of finalized per-video or per-race OCR jobs.
+- `mk8dx_video_result_extractor/ocr_scoreboard_consensus.py`
+  Core score-screen OCR logic: ROIs, row presence detection, position-template matching, score digit reading, aligned alpha-cutout character matching, and multi-frame consensus.
+- `mk8dx_video_result_extractor/low_res_identity.py`
+  Dedicated low-resolution identity path. Rebuilds identities from fixed ROIs, character matching, and blob fallback when OCR is too weak.
+- `mk8dx_video_result_extractor/ocr_name_matching.py`
+  Fuzzy matching and canonicalization for noisy player names across races, including duplicate-name chain resolution and targeted final-race ambiguity notes.
+- `mk8dx_video_result_extractor/ocr_common.py`
+  Shared OCR metadata and frame-loading helpers.
+
+### Validation and export phase
+
+- `mk8dx_video_result_extractor/ocr_session_validation.py`
+  Validates totals, identifies session rebases/resets, attaches review reasons, and recomputes final post-race ordering from validated totals.
+- `mk8dx_video_result_extractor/ocr_export.py`
+  Builds user/debug export dataframes, writes timestamped workbook files, and reports player-count plus identity-split investigation summaries.
+
+### Metadata and runtime support
+
+- `mk8dx_video_result_extractor/app_runtime.py`
+  Loads `config/app_config.json`, persists simple runtime settings, checks FFmpeg, and reports GPU/OpenCL runtime status.
+- `mk8dx_video_result_extractor/game_catalog.py`
+  Loads the compact game catalog used for cups, tracks, and characters.
+- `mk8dx_video_result_extractor/track_metadata.py`
+  Compatibility wrapper around track metadata consumers.
+- `mk8dx_video_result_extractor/project_paths.py`
+  Defines `PACKAGE_ROOT` and `PROJECT_ROOT`.
+- `mk8dx_video_result_extractor/data_paths.py`
+  Resolves packaged asset/data paths.
+
+## Module Map And Data
+
+### Inputs
+
+- `Input_Videos/`
+  Source videos. The app can process the root only or recurse with `--subfolders`.
+- `config/app_config.json`
+  Runtime settings for worker counts, export image format, EasyOCR GPU/overlap modes, consensus frames, debug-output toggles, and low-res thresholds.
+- `reference_data/game_catalog.json`
+  Runtime metadata source for tracks, cups, and characters.
+- `assets/templates/`
+  Detection templates used during extraction and some OCR support logic.
+- `assets/character/`, `assets/cup/`, `assets/gui/`
+  Character templates, cup assets, and GUI art.
+
+### Generated outputs
+
+- `Output_Results/Frames/`
+  Per-video race bundles used by OCR. Score-screen folders now persist the OCR bundle as `anchor_<frame>`, `consensus_<frame>`, and transition-centered `2RaceScore` context frames so `--selection` and `--ocr` reuse the same saved bundle intent.
+- `Output_Results/*.xlsx` and `Output_Results/*.csv`
+  Timestamped tournament outputs.
+- `Output_Results/Debug/`
+  Debug workbooks, CSVs, score-frame annotations, and score-layout demo images when debug output is enabled.
+  Per-race debug images now mirror the `Frames/` video/race/bundle folder structure under `Debug/Score_Frames/<Video>/Race_###/<2RaceScore|3TotalScore>/`.
+
+### Helper tools and scripts
+
+- `scripts/setup_windows.ps1`, `scripts/setup_unix.sh`
+  Supported setup paths.
+- `scripts/quick_benchmark.*`, `scripts/release_benchmark.*`
+  Benchmark helpers.
+- `tools/validate_outputs.py`
+  Compares current outputs against a stored baseline using PNG hashes and workbook row comparisons.
+- `tools/run_with_perf_guard.py`
+  Performance-guard helper for controlled runs.
+- `tools/position_template_diagnostics.py`
+  Diagnostics for left-side position template behavior.
+- `tools/generate_name_ocr_debug_html.py`, `tools/evaluate_batch_name_consensus.py`
+  OCR diagnostics and consensus analysis helpers.
+- `tools/evaluate_mii_memory_probe.py`, `tools/evaluate_character_variant_families.py`
+  Character matching probes for saved RaceScore crops and family/refinement diagnostics.
+- `tools/probe_corrupt_remux_viability.py`
+  Compares sampled corrupt-video preflight behavior before and after a light FFmpeg remux.
+- `tools/move_practical_duplicate_candidates_to_exclude.ps1`
+  Applies a reviewed duplicate-video move plan into `Input_Videos/exclude`, with a `-WhatIf` mode for dry runs.
+
+## Run, Build, And Verification
+
+Baseline verification:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall mk8dx_video_result_extractor
+.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --check
+```
+
+Common scoped commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --extract --video <video-name>
+.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --ocr --selection --video <video-name>
+.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --all --selection --video <video-name>
+.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --selection --subfolders --videos "2026-03-28/VideoA.mp4" "2026-03-28/VideoB.mp4"
+```
+
+Notes:
+- `--all` is broader than `--selection`; it can include historical frame groups already present in `Output_Results/Frames`.
+- `--selection` is the safer baseline for scoped verification because OCR stays limited to the selected video classes.
+- `--videos` is the scoped multi-target variant (files and folders). When combined with `--subfolders`, explicit relative paths are matched exactly before basename/stem fallback.
+- Child scripts are expected to run through the repo-local `.venv`.
+- Baseline comparisons are optional and require an explicit external baseline directory.
+- With EasyOCR CUDA enabled and more than one selected input video, overlap `auto` now defaults to streamed per-race OCR with two consumers. Explicit `video` / `race` mode overrides and higher consumer counts remain available for experiments.
+- For headless debugging, `mk8-local-play.exe --selection --debug --video <video-name>` enables debug workbook/CSV and score-layout image output without changing normal CLI defaults.
+
+## Major Dependencies
+
+Python packages in `pyproject.toml`:
+- `opencv-python`
+- `numpy`
+- `pandas`
+- `openpyxl`
+- `pillow`
+- `easyocr`
+- `jellyfish`
+- `textdistance`
+- `psutil`
+
+External tools:
+- FFmpeg
+
+## Verified Facts, Strong Inferences, Unknowns
+
+Verified:
+- The repo is packaged via `pyproject.toml` and exposes `mk8-local-play`.
+- `.\.venv\Scripts\python.exe -m compileall mk8dx_video_result_extractor` succeeds.
+- `.\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --check` succeeds in the current environment.
+- The current environment reports EasyOCR importable and FFmpeg available.
+- Scoring recomputation now resets running totals per video/race class, preventing repeated names in separate source videos from leaking tournament totals across exports.
+
+Strong inferences:
+- The practical regression strategy today is reproducible CLI runs plus output comparison, not unit-test-first development.
+- The highest-risk logic is concentrated in score-frame selection, OCR consensus, low-res identity recovery, and session validation.
+
+Unknowns:
+- The current large `Output_Results/` corpus is still useful for manual and ad hoc regression work, but it is not a controlled automated benchmark set.
+
+## Risks And Technical Debt Hotspots
+
+- Large monolithic modules:
+  `extract_frames.py`, `extract_text.py`, and `ocr_scoreboard_consensus.py` carry a lot of behavior and are expensive to change safely.
+- Heuristic sensitivity:
+  score-screen timing, row visibility thresholds, position-template gates, and low-res fallback thresholds are behaviorally critical.
+- Validation complexity:
+  session rebases and reset handling can create subtle false positives or hidden regressions if changed casually.
+- Verification gap:
+  there is no repo-native automated test suite in this runtime-focused distribution.
+- Output sprawl:
+  `Output_Results/` contains substantial historical artifacts; useful for reference, but easy to misuse as an uncontrolled baseline.
+
+## Priority Improvement Opportunities
+
+- Maintain a separate QA repository or artifact bundle for regression tests and curated baselines.
+- Keep technical docs aligned whenever ROI geometry, score-layout behavior, or runtime commands change.
+
+## Change-Control Defaults
+
+- Existing behavior is the contract unless a verified bug or approved change says otherwise.
+- Fixes should be minimal and contained.
+- Do not auto-revert on intermediate metric drift alone.
+- When final correctness is ambiguous, escalate for human evaluation before rollback.

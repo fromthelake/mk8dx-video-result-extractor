@@ -1,0 +1,169 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is intentionally simple and human-readable.
+
+## [Unreleased]
+
+### Added
+- `pyproject.toml` for editable installs and console-script entrypoints
+- New primary entrypoints:
+  - `main.py`
+  - `extract_frames.py`
+  - `extract_text.py`
+- New extraction modules:
+  - `extract_initial_scan.py`
+  - `extract_score_screen_selection.py`
+  - `extract_video_io.py`
+  - `extract_common.py`
+- New OCR modules:
+  - `ocr_name_matching.py`
+  - `ocr_scoreboard_consensus.py`
+  - `ocr_session_validation.py`
+  - `ocr_export.py`
+  - `ocr_common.py`
+- New documentation:
+  - `README.md`
+  - `README.md`
+  - `docs/PROJECT_STRUCTURE.md`
+  - `docs/CONTRIBUTING.md`
+- New release history file:
+  - `docs/CHANGELOG.md`
+- Repo placeholder files for cleaner fresh clones:
+  - `Input_Videos/.gitkeep`
+  - `benchmarks/baselines/.gitkeep`
+  - `Output_Results/Debug/Score_Frames/.gitkeep`
+
+### Changed
+- Headless OCR runs now support an experimental `--low_res` mode for explicitly selected videos, forcing only those race classes through the existing low-res/ultra-low-res identity pipeline without changing default run behavior (`--ultra_low_res` remains as a backward-compatible alias).
+- `Transition + stable-hint` is now the default TotalScore timing baseline. The second pass first lands in a small learned transition window, then probes early/late stable-total clusters before falling back to the old broad search path. This keeps the old safety net, but cut the reviewed top-30 benchmark from `01:03:19` to `00:37:54`.
+- Character family refinement now uses aligned alpha-cutout color scoring on saved `2RaceScore` anchor crops instead of the older unaligned diagnostic HSV scorer in production. It covers catalog-backed `Birdo`, `Yoshi`, `Shy Guy`, and `Inkling` families, plus explicit close-cutout groups for `Peach` / `Pink Gold Peach` and `Mario` / `Metal Mario` / `Gold Mario`.
+- Debug exports now include explicit character-family review fields: `Character Family`, `Character Family Best`, `Character Family Best Coeff`, `Character Family Second`, `Character Family Second Coeff`, and `Character Family Margin`.
+- Shared EasyOCR readers are now guarded by per-reader inference locks, removing overlap-mode drift from concurrent `readtext` / `recognize` calls against the same cached reader instance.
+- Character shortlist acceleration remains available for experiments, but is disabled by default and only consults races strictly earlier than the current race when enabled, so later races can no longer leak identity priors backward.
+- Low-resolution placeholder-name rescue now clusters near-identical OCR spellings before choosing a canonical name, reducing low-res drift such as `Amber` / `Ambor`.
+- Scoped CLI runs now support `--videos` for selecting multiple explicit file paths in one run. When combined with `--subfolders`, exact relative paths are matched before basename/stem fallback so sibling folders such as `backup/` do not get pulled in accidentally.
+- Headless selection now allows folder targets in `--video` / `--videos` (for example `--videos "2026-03-28"`), and `--extract` now uses the same scoped resolver path instead of forwarding unsupported child args.
+- Scoring recomputation now resets running tournament totals per video/race class, so repeated player names in separate captures no longer inherit totals from earlier videos in the same export.
+- Headless CLI runs now accept `--debug`, which turns on debug CSV, debug workbook, and score-layout image output for that run without changing the normal default behavior.
+- Initial score-candidate confirmation now uses rows `2..6` instead of `1..6`, so Nintendo `Capture taken.` overlays on row `1` no longer suppress real score screens during the first scan.
+- Second-pass score selection now uses FPS-adaptive coarse stepping with rewind before the first RaceScore hit and again during TotalScore stabilization (30fps baseline remains `+10` / rewind `10`), reducing unnecessary frame-by-frame scanning in long candidate windows.
+- TotalScore stable-signature extraction now reads total digits only (no race-point OCR in that path), and reuses per-frame signature caching within each race detail pass to avoid duplicated probe/scan work.
+- Detail-phase fine scanning now applies `analysis_step=2` only on 60fps-class sources (`step=1` elsewhere). If a 60fps stepped pass misses transition/stable anchors, the same local window is retried once at `step=1`.
+- RaceScore export windows are now centered on the detected points-rollup transition so the saved `2RaceScore` bundle itself matches the intended OCR split.
+- The OCR position-template matcher now uses the masked `Score_template_white.png` / `Score_template_black.png` tile path only; the older `Score_template.png` strip fallback has been removed.
+- Connection-reset handling now supports repeated resets within the same video instead of stopping after the first detected reset.
+- Total-score validation now adds a second-pass reset detector for obvious fresh-session patterns where OCR totals collapse back to race-points-scale values across most of the field.
+- Final scoring now applies a late player-drop policy: reduced-player races stay visible in exports, but can be excluded from cumulative totals when later races recover to a higher player count.
+- User exports now place `Counts Toward Totals` and `Scoring Note` at the end of the results table when late scoring exclusions apply.
+- Recursive input discovery now skips any video under folders named `corrupt` or `exclude`, so archived/repaired and intentionally excluded videos are not picked up in normal subfolder runs.
+- Extraction debug output now records the actual processed source path after video repair so saved metadata matches the frames that were really analyzed.
+- Score detection now uses the left-side position row boxes as the real score-presence signal, with a required visible-player prefix and average-coefficient gate.
+- Race-number detection now supports the Dutch `Race_template_NL_final.png` ROI in addition to the legacy race template.
+- 12th-place checks now support both `12th_pos_template.png` and `12th_pos_templateNL.png`, and confirmed 12th-place hits expand the RaceScore bundle used by OCR.
+- TotalScore timing now confirms a sustained score drop over `5.0 * fps` and anchors from the start of that drop, preventing short transition animations from triggering early TotalScore exports.
+- Final-race duplicate-name ambiguity notes now only mark the truly interchangeable rows and explicitly name the conflicting identity label(s).
+- `Position After Race` is now recomputed from the validated post-race totals with stable tie-breaks instead of keeping OCR/shared-place ordering.
+- Runtime GPU settings now default extraction (`execution_mode`) to `cpu` and EasyOCR (`easyocr_gpu_mode`) to `auto`, with `gpu` and `cpu` override modes still available from config, env vars, and the GUI.
+- Overlap OCR now defaults to `auto` mode with `2` consumers. When EasyOCR CUDA is available, full multi-video runs use the streamed per-race overlap path by default; when CUDA is unavailable, the overlap default resolves back to the existing sequential behavior. Explicit `video` / `race` mode overrides and custom consumer counts remain supported for experiments.
+- Initial scan now supports a multi-video shared-process path. It defaults to `2` workers for multi-video runs, and `MK8_PARALLEL_VIDEO_SCAN_WORKERS` can still override it manually. On the current 7-video benchmark set, `2` workers reduced extraction-only runtime from `06:59` to `03:58`, while `3` and `4` workers were slower.
+- Extraction worker defaults are now tuned from the full 7-video benchmark set: `pass1_scan_workers=4`, `score_analysis_workers=4`, and cross-video total-score workers resolve to `2` on `16+` logical CPU threads and `1` otherwise.
+- Selection and scoped extract runs now clear only the selected videos' exported artifacts internally before extraction starts, so repeated scoped runs start cleanly without external shell cleanup.
+- Console reporting is now clearer and more consistent during long runs: selected videos get stable neon accents, video-owned values are colored without coloring whole lines, the final performance summary is table-based, and `Time saved by overlap` shows the wall-clock savings gained from overlap and parallelism.
+- Console workflow ordering is now consistent across the input summary, frame-count preflight, scan/start labels, and per-video summaries. Scan progress now uses time-based `HH:MM:SS / HH:MM:SS` output, live progress rows use aligned `Comp` / `Done` fields, OCR progress reports `Active` race bundles, and the performance summary splits OCR race reading from validation/export and workbook/CSV export timing.
+- Resource progress lines now report `CPU`, `RAM`, and `GPU` together; RAM is shown as percentage in live status and phase summaries.
+- Score-screen extraction now supports both LAN 2 two-player split-screen and LAN 1 one-player full-screen layouts for `2RaceScore` / `3TotalScore`.
+- Initial score-screen detection now checks both supported score-anchor ROIs in one pass and tags the winning layout on each score candidate.
+- Initial scan ignore detection now supports multiple gallery/review templates so Nintendo Switch Album / Gallery control bars can be rejected before score candidates are queued.
+- Exported `2RaceScore` / `3TotalScore` frame filenames and metadata now carry the detected score layout id so OCR can select the correct ROI set without guessing.
+- Score-frame debug output now also writes annotated ROI demo images under `Output_Results/Debug/Score_Layout_Demos/` for both `2RaceScore` and `3TotalScore`.
+- Low-resolution and ultra-low-resolution score-row geometry now follows the detected LAN 1 vs LAN 2 score layout instead of assuming one fixed scoreboard placement.
+- Setup scripts now install the project in editable mode.
+- New console command names:
+  - `mk8-local-play`
+- The application source code now lives in the `mk8dx_video_result_extractor/` package.
+- The package entrypoints now route through `mk8dx_video_result_extractor.main`.
+- Maintainer documentation is now grouped under `docs/`.
+- Benchmark baselines are now grouped under `benchmarks/baselines/`.
+- Track metadata and reference images are now grouped under `reference_data/`.
+- Runtime path resolution, package data, benchmark scripts, and documentation were updated to match the grouped layout.
+- Tracked IDE project files were removed from the repository.
+- GUI startup now degrades more safely on systems without Tk support.
+- Child scripts launched from `main.py` now prefer the repo-local `.venv`.
+- `python -m mk8dx_video_result_extractor.main --check` reports both the parent Python and the child-script Python.
+- Unix benchmark and setup scripts now use Unix-native virtualenv paths first.
+- Assets are grouped under `assets/`.
+- Naming moved toward clearer, human-readable module and function names.
+- Internal extraction naming now prefers descriptive terms like `initial scan` instead of vague phase labels.
+- OCR output writes timestamped workbooks to `Output_Results/`
+- OCR output now also writes a timestamped `*_Final_Standings.csv` alongside the workbook and results CSV.
+- Track, cup, and character metadata now derive from a compact `reference_data/game_catalog.json` built from `database/firestore-export.json`.
+- User workbooks now include `Character` and `Position After Race`.
+- Debug workbooks now include explicit session rebase/reset flags, RaceScore recovery fields, identity labels, and character match details.
+- Workbook output now keeps only timestamped files, with debug workbooks grouped under `Output_Results/Debug/`.
+- Character icon matching now uses alpha-aware full-color template matching and `48x48` resized templates inside the fixed icon ROI.
+- `Position After Race` is now recalculated from the final validated totals and allows shared placements such as `1,1,1,4,...`.
+- RaceScore consensus is now signal-specific:
+  - player names use all 7 nearby frames
+  - race points use the first 3 frames
+  - character matching uses the last 3 frames
+  - left-side position matching uses the last 3 frames
+  - RaceScore player count uses the first 3 frames
+- TotalScore consensus now loads and uses only 3 center frames instead of loading a wider bundle first.
+- Static gallery-opened RaceScore screens are now filtered using first-frame-vs-rest similarity checks with conservative thresholds, so obvious Nintendo Switch Album stills can be rejected without dropping known low-motion real races.
+- Debug exports now expose explicit score-read sources for RacePoints, old totals, and new totals (`7-segment` vs `ocr_fallback`).
+- RacePoints runtime seven-segment detection now uses the tuned fixed ROI layout with `white_threshold=180` and `active_ratio_threshold=0.45`.
+- Session rebases remain visible in validation/debug output as an attention point, but no longer count as OCR review failures by themselves.
+- Initial scan phase summaries now report confirmed track/race detection counts consistently during parallel scanning.
+- Parallel initial scan now streams live detection counts during the scan instead of appearing idle until segment workers finish.
+- The GUI now includes a `Clear Output Results` action with an `Are you sure?` confirmation before deleting generated output files.
+
+### Fixed
+- First-race total recomputation now preserves validated non-zero `OldTotalScore` baselines for the players actually present instead of resetting the workbook totals back to zero.
+- Overlap OCR finalization no longer stalls a whole video when a tail race folder contains only `0TrackName` / `1RaceNumber` without an exported `2RaceScore` bundle.
+- Case-distinct players such as `Floris` and `floris` no longer collapse into one standardized identity chain when both appear in the same race.
+- Connection-reset relinking now includes a single-swap fallback: when exactly one identity disappears and one appears at the reset boundary, the post-reset identity is relinked by elimination even if OCR name/character hints are noisy.
+- Identity relinking now also fixes one-race OCR outliers: a transient low-confidence name that appears in exactly one race is reassigned to the stable identity that exists in both adjacent races when character continuity is compatible.
+- Score-layout anchor matching no longer incorrectly reports `rejected_as_blank` when one supported layout is blank but another layout matches strongly.
+- Session-level character relabeling now supports Mii fallback when one player repeatedly produces weak, near-tied, unstable non-Mii character matches across the saved `2RaceScore` frames.
+- Mii fallback rows now keep a short explicit review note: `mii_fallback_unstable_character_match`.
+- Headless CLI runs no longer depend on GUI-only image imports.
+- OCR/export no longer failed when `main.py` was started from the wrong Python interpreter while `.venv` existed.
+- Several cross-platform path and setup issues affecting Windows, Linux, and macOS were cleaned up.
+- The first visible race in a partially recorded video can now rebase the running totals instead of causing mismatch cascades.
+- Later connection-reset races now keep the authoritative tournament totals running while clearly flagging the OCR reset rows.
+- RaceScore player counts now recover from later frames when the black results banner hides the last row.
+- Duplicate exact player names can now be split with character-aware identity tracking, producing stable names such as `Name_1` and `Name_2`.
+- Review-reason parsing no longer turns values like `15.0` into incorrect messages such as `150`.
+- Position-guided player count detection now treats rows with `Coeff < 0.50` as empty, preventing false extra rows in stable 10-player cases.
+- Position-guided OCR row counts now allow a guarded row-1 exception at `Coeff >= 0.30` when first place is visually occupied but partly covered by the Nintendo `Capture taken.` overlay.
+- Transition debounce for the points-rollup trigger now keeps a fixed confirm-hit target (`p5` default) while scaling false-gap tolerance with FPS, preserving equivalent timing tolerance across 30fps and 60fps sources without over-delaying confirmation.
+- RaceScore frame selection now scales the old post-12th timing by FPS and can search slightly later frames for a valid 12th-place row when a 12-player race would otherwise be exported one frame too early.
+- `Digit confidence is low` and race-points mismatches caused by late RaceScore frames drifting downward are now eliminated on validated multi-video OCR runs.
+- False RacePoints and TotalScore regressions caused by padded digit rows no longer trigger unnecessary OCR fallback on validated races.
+- Low-resolution videos now use a dedicated player-identity path with `PlayerNameMissing_X` placeholders, fixed name/character ROI matching, and computed race points / totals instead of OCR score digits.
+- Low-resolution score consensus now keeps position-confirmed rows even when OCR is too weak to fill the row reliably.
+- Low-resolution character matching now uses the tuned fixed ROI and `51x52` template sizing validated on multiple `640x360 -> 1280x720` captures.
+- Low-resolution `11 vs 12` last-row misses can now recover row 12 from the combined `character + player-name` blob when the rest of the video clearly indicates a 12-player race.
+- Placeholder identities no longer resolve to other `PlayerNameMissing_X` labels, preventing duplicate placeholder names inside one race.
+- Placeholder identity rescue now has a conservative forced-choice fallback for strong unresolved candidates. Forced promotions are marked as `placeholder_name_forced_choice` and keep their candidate/support/score trail in `ReviewReason`.
+- Low-resolution ROI/template sizing and blob fallback thresholds are now exposed through `config/app_config.json` for future tuning without code edits.
+- `Output_Results` can now be cleared safely from both CLI and GUI without breaking the expected folder structure, because the app recreates `Frames/`, `Debug/`, and `Debug/Score_Frames/` immediately after cleanup.
+- Position-guided player counts now use the highest convincing row index instead of collapsing at the first failed middle row, which fixes `12 -> 5` count failures and allows row `12` to count when any convincing position template is present there, even if template `11` visually wins.
+- Position-guided player counting now rejects non-finite template scores (`inf` / `NaN`) in the row-support gate, preventing malformed match values from producing phantom extra players in RaceScore count voting/recovery.
+- Total-score player-count vote ties are now deterministic and conservative: tied total-count votes prefer the race-score count and otherwise choose the lower tied count, preventing unstable `8/9/10` tie picks from creating false race/total count mismatches.
+- Review reasons are now shorter, deduplicated, capped for export, and no longer repeat connection-reset messages across later races after a detected reset.
+- Session validation now preserves the original OCR total-score row position, preventing false `Scoreboard total order is not descending.` warnings after tournament-only `Position After Race` recomputation.
+- Post-reset local `TotalScore` values are now validated against the reset-local session totals instead of continuing to trigger false tournament-total mismatches in later races.
+- Score-frame debug annotations now save per-frame OCR bundle diagnostics under `Debug/Score_Frames/<Video>/Race_###/<2RaceScore|3TotalScore>/`, with native-resolution overlays, 1px segment boxes, and the legacy center-frame file preserved alongside the per-frame images.
+- The seven-segment reader now uses one canonical explicit segment layout for RacePoints / OldTotalScore and scales that same layout into the larger TotalScore digit boxes.
+- OCR junk punctuation on the edges of player names no longer creates false new identities when the underlying name, character, and totals clearly match an existing player.
+- RacePoints can now reconcile to the `OldTotalScore -> TotalScore` delta when the bundle evidence supports the implied score better than the initially selected point read.
+- Final-race duplicate-name ambiguity notes are now scoped only to the rows that remain interchangeable, and the note explicitly names the conflicting identity label(s).
+
+### Documentation
+- Setup instructions were rewritten for hobbyist-friendly use from a Git clone.
+- Project structure is now documented in plain language.
+- Technical pipeline docs now explain that AAC `decode_pce` console warnings are usually noisy audio-stream warnings, not immediate video-decoding failures.
+- Contributing expectations now explicitly cover naming, comments, cross-platform behavior, and validation.
