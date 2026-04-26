@@ -9,6 +9,7 @@ file_list.txt
 
 # Local input videos
 Input_Videos/*
+!Input_Videos/Demo_CaptureCard_Race.mp4
 !Input_Videos/.gitkeep
 Input_Videos_Hold/
 
