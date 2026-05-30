@@ -36,6 +36,7 @@ from .app_runtime import (
     check_runtime,
     detect_easyocr_runtime,
     detect_gpu_runtime,
+    detect_torch_runtime,
     easyocr_gpu_enabled as runtime_easyocr_gpu_enabled,
     effective_overlap_ocr_mode as runtime_effective_overlap_ocr_mode,
     load_app_config,
@@ -46,7 +47,7 @@ from .console_logging import LOGGER
 from .data_paths import resolve_asset_file
 from .extract_common import EXPORT_IMAGE_FORMAT, remove_tree_contents, should_include_input_video_path
 from .ocr_export import build_completion_payload
-from .ocr_scoreboard_consensus import build_race_warning_messages
+from .ocr_scoreboard_consensus import build_race_warning_messages, describe_character_catalog_runtime
 from .project_paths import PROJECT_ROOT
 from . import extract_initial_scan as initial_scan
 from . import extract_frames
@@ -2100,6 +2101,7 @@ def print_runtime_status() -> int:
     ffmpeg_issues = check_runtime(APP_CONFIG, require_ffmpeg=True)
     gpu_runtime = detect_gpu_runtime(APP_CONFIG)
     easyocr_runtime = detect_easyocr_runtime(APP_CONFIG)
+    torch_runtime = detect_torch_runtime()
     gui_available, gui_reason = gui_runtime_available()
     easyocr_available = importlib.util.find_spec("easyocr") is not None
 
@@ -2112,20 +2114,36 @@ def print_runtime_status() -> int:
     print(f"FFmpeg: {'OK' if not ffmpeg_issues else 'MISSING'}")
     print(f"GUI runtime: {'OK' if gui_available else 'UNAVAILABLE'}")
     print(f"GUI detail: {gui_reason}")
+    print(f"PyTorch version: {torch_runtime['version'] or 'MISSING'}")
+    print(f"PyTorch CUDA build: {torch_runtime['cuda_build'] or 'none'}")
+    print(f"PyTorch CUDA available: {torch_runtime['cuda_available']}")
+    if torch_runtime["device_name"]:
+        print(f"PyTorch CUDA device: {torch_runtime['device_name']}")
+    print(f"PyTorch detail: {torch_runtime['reason']}")
     print(
         f"GPU mode: {gpu_runtime['mode']} "
         f"({'ENABLED' if gpu_runtime['enabled'] else 'DISABLED'}, backend={gpu_runtime['backend']}, "
-        f"cuda_devices={gpu_runtime['device_count']}, opencl={gpu_runtime['opencl_in_use']})"
+        f"opencv_cuda_devices={gpu_runtime['device_count']}, opencl={gpu_runtime['opencl_in_use']})"
     )
     print(f"GPU detail: {gpu_runtime['reason']}")
     print(
         f"EasyOCR mode: {easyocr_runtime['mode']} "
         f"({'ENABLED' if easyocr_runtime['enabled'] else 'DISABLED'}, backend={easyocr_runtime['backend']}, "
-        f"cuda_devices={easyocr_runtime['device_count']})"
+        f"torch_cuda_devices={easyocr_runtime['device_count']})"
     )
     print(f"EasyOCR detail: {easyocr_runtime['reason']}")
+    character_catalog = describe_character_catalog_runtime()
+    from .extract_text import current_ocr_worker_policy
+    ocr_worker_policy = current_ocr_worker_policy(APP_CONFIG, easyocr_gpu=bool(easyocr_runtime["enabled"]))
+    print(f"Character catalog: {character_catalog['catalog_path']}")
+    print(
+        f"Character templates: {character_catalog['loaded_template_count']} matching templates; "
+        f"{character_catalog['catalog_character_count']} catalog labels"
+    )
+    print(f"Character class map sample: {character_catalog['first_mappings']}")
     print(f"OCR workers: {APP_CONFIG.ocr_workers}")
-    print(f"Effective OCR workers: {1 if easyocr_runtime['enabled'] else APP_CONFIG.ocr_workers}")
+    print(f"Effective OCR workers: {ocr_worker_policy['effective_workers']}")
+    print(f"OCR worker policy: {ocr_worker_policy['reason']}")
     print(f"Logical CPU threads: {os.cpu_count() or 1}")
     overlap_mode_effective = runtime_effective_overlap_ocr_mode(APP_CONFIG)
     overlap_default_enabled = runtime_easyocr_gpu_enabled(APP_CONFIG)

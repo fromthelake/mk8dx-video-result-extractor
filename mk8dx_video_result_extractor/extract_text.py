@@ -13,7 +13,8 @@ import openpyxl
 import re
 import threading
 import warnings
-from collections import defaultdict
+from collections import Counter, defaultdict
+from contextlib import nullcontext
 from functools import lru_cache
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
@@ -70,6 +71,7 @@ from .name_unicode import (
     visible_name_length,
 )
 from .ocr_scoreboard_consensus import (
+    CHARACTER_SHORTLIST_ACCELERATION_ENABLED,
     TOTAL_SCORE_CONSENSUS_WINDOW_SIZE,
     _masked_cutout_color_score,
     best_character_matches,
@@ -83,9 +85,11 @@ from .ocr_scoreboard_consensus import (
     observation_stage_summary_lines,
     parse_detected_int,
     record_call_matrix,
+    replay_character_prior_match,
     reset_character_shortlist_state,
     reset_call_matrix_stats,
     reset_observation_stage_stats,
+    player_identity_key,
 )
 from .ocr_session_validation import apply_session_validation
 from .ocr_scoring_policy import apply_temporary_player_drop_scoring_policy
@@ -95,6 +99,19 @@ from .track_metadata import load_track_tuples
 from .game_catalog import load_game_catalog
 
 POSITION_TEMPLATE_COEFF_COLUMNS = [f"PositionTemplate{template_index:02}_Coeff" for template_index in range(1, 13)]
+RESULT_RACE_CLASS_INDEX = 0
+RESULT_RACE_ID_INDEX = 1
+RESULT_RACE_POSITION_INDEX = 3
+RESULT_PLAYER_NAME_INDEX = 4
+RESULT_CHARACTER_INDEX = 5
+RESULT_CHARACTER_CLASS_INDEX = 6
+RESULT_CHARACTER_CONFIDENCE_INDEX = 7
+RESULT_CHARACTER_METHOD_INDEX = 8
+RESULT_CHARACTER_RAW_BEST_INDEX = 9
+RESULT_CHARACTER_RAW_MARGIN_INDEX = 10
+RESULT_CHARACTER_RAW_TOP5_SPREAD_INDEX = 11
+RESULT_CHARACTER_RAW_TOP5_FAMILY_COUNT_INDEX = 12
+RESULT_NAME_CONFIDENCE_INDEX = 23 + len(POSITION_TEMPLATE_COEFF_COLUMNS)
 PLACEHOLDER_NAME_PREFIX = "PlayerNameMissing_"
 PLACEHOLDER_RESCUE_MIN_SUPPORT = 3
 PLACEHOLDER_RESCUE_MIN_ROW_SCORE = 140.0
@@ -496,8 +513,83 @@ def easyocr_gpu_enabled() -> bool:
 
 
 def current_ocr_workers() -> int:
-    runtime_config = load_app_config()
-    return 1 if easyocr_gpu_enabled() else runtime_config.ocr_workers
+    return int(current_ocr_worker_policy()["effective_workers"])
+
+
+def cuda_ocr_worker_override() -> int | None:
+    raw_value = os.environ.get("MK8_CUDA_OCR_WORKERS", "").strip()
+    if not raw_value:
+        return None
+    try:
+        value = int(raw_value)
+    except ValueError:
+        LOGGER.log(
+            "[OCR - Settings]",
+            f"Ignoring invalid MK8_CUDA_OCR_WORKERS={raw_value!r}; expected a positive integer",
+            color_name="yellow",
+        )
+        return None
+    return value if value > 0 else None
+
+
+def easyocr_reader_lock_enabled() -> bool:
+    return os.environ.get("MK8_DISABLE_EASYOCR_READER_LOCK", "0").strip().lower() not in {"1", "true", "yes", "on"}
+
+
+def character_prior_replay_enabled() -> bool:
+    return (
+        CHARACTER_SHORTLIST_ACCELERATION_ENABLED
+        and os.environ.get("MK8_CHARACTER_PRIOR_REPLAY", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    )
+
+
+def current_ocr_worker_policy(
+    runtime_config=None,
+    *,
+    easyocr_gpu: bool | None = None,
+    character_shortlist_acceleration: bool | None = None,
+    character_prior_replay: bool | None = None,
+) -> dict:
+    runtime_config = runtime_config or load_app_config()
+    configured_workers = max(1, int(runtime_config.ocr_workers))
+    if easyocr_gpu is None:
+        easyocr_gpu = runtime_easyocr_gpu_enabled(runtime_config)
+    if character_shortlist_acceleration is None:
+        character_shortlist_acceleration = bool(CHARACTER_SHORTLIST_ACCELERATION_ENABLED)
+    if character_prior_replay is None:
+        character_prior_replay = character_prior_replay_enabled()
+
+    if easyocr_gpu:
+        cuda_worker_override = cuda_ocr_worker_override()
+        if cuda_worker_override is not None:
+            return {
+                "configured_workers": configured_workers,
+                "effective_workers": cuda_worker_override,
+                "reason": "easyocr_cuda_worker_override",
+            }
+        return {
+            "configured_workers": configured_workers,
+            "effective_workers": min(configured_workers, 2),
+            "reason": "easyocr_cuda_two_worker_default",
+        }
+    if character_shortlist_acceleration and character_prior_replay:
+        return {
+            "configured_workers": configured_workers,
+            "effective_workers": configured_workers,
+            "reason": "parallel_raw_ocr_deterministic_character_replay",
+        }
+    if character_shortlist_acceleration:
+        return {
+            "configured_workers": configured_workers,
+            "effective_workers": 1,
+            "reason": "deterministic_character_prior_state",
+        }
+    return {
+        "configured_workers": configured_workers,
+        "effective_workers": configured_workers,
+        "reason": "configured_cpu_parallel",
+    }
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -962,6 +1054,12 @@ def _get_easyocr_reader_run_lock(languages: list[str] | tuple[str, ...]) -> thre
     return lock
 
 
+def _easyocr_reader_run_context(languages: list[str] | tuple[str, ...]):
+    if not easyocr_reader_lock_enabled():
+        return nullcontext()
+    return _get_easyocr_reader_run_lock(languages)
+
+
 def _run_easyocr_single_roi(
     roi: np.ndarray,
     languages: list[str] | tuple[str, ...],
@@ -972,9 +1070,8 @@ def _run_easyocr_single_roi(
     if reader is None or roi.size == 0:
         return "", 0
 
-    reader_run_lock = _get_easyocr_reader_run_lock(languages)
     start_time = time.perf_counter()
-    with reader_run_lock:
+    with _easyocr_reader_run_context(languages):
         result = reader.readtext(roi, detail=1, paragraph=False)
     OCR_PROFILER.record(profile_label, time.perf_counter() - start_time)
 
@@ -1109,7 +1206,6 @@ def _run_easyocr_player_name_for_context(
     reader = _get_easyocr_reader(PLAYER_NAME_EASYOCR_LANGS)
     if reader is None:
         return "", 0
-    reader_run_lock = _get_easyocr_reader_run_lock(PLAYER_NAME_EASYOCR_LANGS)
 
     roi = image[y1:y2, x1:x2]
     if roi.size == 0:
@@ -1119,7 +1215,7 @@ def _run_easyocr_player_name_for_context(
 
     def add_candidate(source_image: np.ndarray, label: str, method_name: str) -> None:
         start_time = time.perf_counter()
-        with reader_run_lock:
+        with _easyocr_reader_run_context(PLAYER_NAME_EASYOCR_LANGS):
             result = reader.readtext(source_image, detail=1, paragraph=False)
         duration_s = time.perf_counter() - start_time
         OCR_PROFILER.record(label, duration_s)
@@ -1207,10 +1303,9 @@ def _run_easyocr_player_names_batched_variant(
     if reader is None:
         return [""] * len(coord_list), [0] * len(coord_list)
 
-    reader_run_lock = _get_easyocr_reader_run_lock(PLAYER_NAME_EASYOCR_LANGS)
     canvas, horizontal_list = _build_player_name_canvas(image, coord_list, preprocess=preprocess)
     start_time = time.perf_counter()
-    with reader_run_lock:
+    with _easyocr_reader_run_context(PLAYER_NAME_EASYOCR_LANGS):
         result = reader.recognize(
             canvas,
             horizontal_list=horizontal_list,
@@ -1497,6 +1592,338 @@ MII_GROUP_FALLBACK_MIN_SIGNALS = 2
 MII_CHARACTER_NAME = "Mii"
 MII_CHARACTER_INDEX = 80
 MII_CHARACTER_METHOD = "mii_fallback_open_set_unstable_closed_set_identity"
+MII_CLOSED_SET_GROUP_REPAIR_METHOD = "closed_set_group_mii_repair"
+MII_PRESERVE_MIN_CONFIDENCE = 70.0
+MII_PRESERVE_PROBE_MIN_CONFIDENCE = 55.0
+MII_PRESERVE_PROBE_MIN_MARGIN = 10.0
+MII_PRESERVE_MIN_DOMINANT_RATIO = 0.75
+MII_PRESERVE_STRONG_ROW_CONFIDENCE = 80.0
+MII_PRESERVE_STRONG_FAMILY_MARGIN = 1.0
+MII_PRESERVE_METHOD_MARKERS = (
+    "aligned_alpha_cutout_template_local_search",
+    "black_blue_chroma_refine",
+    "character_prior_confirm",
+    "character_shortlist_alpha_search",
+    "variant_family_aligned_color_refine",
+)
+MII_LIKELY_METHOD_MARKERS = (
+    "character_prior_mii_likely",
+    "open_set_mii_reject",
+)
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    try:
+        if pd.isna(result):
+            return float(default)
+    except TypeError:
+        pass
+    return float(result)
+
+
+def _stable_character_group_key(character_name: str) -> str:
+    family_name = resolve_character_variant_family_name(character_name)
+    return f"family:{family_name}" if family_name else f"character:{character_name}"
+
+
+def _is_mii_likely_method(method: str) -> bool:
+    return any(marker in method for marker in MII_LIKELY_METHOD_MARKERS)
+
+
+def _is_closed_set_method(method: str) -> bool:
+    return any(marker in method for marker in MII_PRESERVE_METHOD_MARKERS)
+
+
+def _closed_set_preserve_confidence(row: pd.Series) -> float:
+    return max(
+        _safe_float(row.get("CharacterMatchConfidence", 0.0), default=0.0),
+        _safe_float(row.get("CharacterMatchRawBest", 0.0), default=0.0),
+    )
+
+
+def _row_has_preservable_closed_set_evidence(row: pd.Series) -> bool:
+    character_name = str(row.get("Character", "") or "").strip()
+    if not character_name or character_name == MII_CHARACTER_NAME:
+        return False
+    method = str(row.get("CharacterMatchMethod", "") or "").strip()
+    if _is_mii_likely_method(method):
+        return False
+    if not _is_closed_set_method(method):
+        return False
+    confidence = _closed_set_preserve_confidence(row)
+    return confidence >= MII_PRESERVE_MIN_CONFIDENCE
+
+
+def _row_has_strong_family_refined_evidence(row: pd.Series) -> bool:
+    character_name = str(row.get("Character", "") or "").strip()
+    if not character_name or character_name == MII_CHARACTER_NAME:
+        return False
+    method = str(row.get("CharacterMatchMethod", "") or "").strip()
+    if "variant_family_aligned_color_refine" not in method and "black_blue_chroma_refine" not in method:
+        return False
+    confidence = _safe_float(row.get("CharacterMatchConfidence", 0.0), default=0.0)
+    if confidence < MII_PRESERVE_STRONG_ROW_CONFIDENCE:
+        return False
+    family_best = str(row.get("CharacterFamilyBest", "") or "").strip()
+    if family_best and family_best != character_name:
+        return False
+    family_margin = _safe_float(row.get("CharacterFamilyMargin", MII_PRESERVE_STRONG_FAMILY_MARGIN), default=0.0)
+    return family_margin >= MII_PRESERVE_STRONG_FAMILY_MARGIN
+
+
+def _has_stable_closed_set_character_group(player_rows: pd.DataFrame) -> bool:
+    stable_counts: dict[str, int] = {}
+    stable_confidences: dict[str, list[float]] = defaultdict(list)
+    total_rows = max(1, len(player_rows.index))
+    for _row_index, row in player_rows.iterrows():
+        if not _row_has_preservable_closed_set_evidence(row):
+            continue
+        character_name = str(row.get("Character", "") or "").strip()
+        group_key = _stable_character_group_key(character_name)
+        stable_counts[group_key] = stable_counts.get(group_key, 0) + 1
+        stable_confidences[group_key].append(_closed_set_preserve_confidence(row))
+    if not stable_counts:
+        return False
+    dominant_key, dominant_count = max(stable_counts.items(), key=lambda item: (item[1], item[0]))
+    dominant_ratio = float(dominant_count) / total_rows
+    dominant_confidences = stable_confidences.get(dominant_key, [])
+    avg_confidence = (
+        float(sum(dominant_confidences) / max(1, len(dominant_confidences)))
+        if dominant_confidences
+        else 0.0
+    )
+    return (
+        dominant_count >= MII_ACCEPT_MIN_RACES
+        and dominant_ratio >= MII_PRESERVE_MIN_DOMINANT_RATIO
+        and avg_confidence >= MII_PRESERVE_MIN_CONFIDENCE
+    )
+
+
+def _closed_set_candidate_from_existing_row(row: pd.Series) -> dict[str, object] | None:
+    if not _row_has_preservable_closed_set_evidence(row):
+        return None
+    character_name = str(row.get("Character", "") or "").strip()
+    return {
+        "Character": character_name,
+        "CharacterIndex": row.get("CharacterIndex"),
+        "CharacterMatchConfidence": _closed_set_preserve_confidence(row),
+        "group_key": _stable_character_group_key(character_name),
+    }
+
+
+def _closed_set_candidate_from_family_refinement(row: pd.Series) -> dict[str, object] | None:
+    family_best = str(row.get("CharacterFamilyBest", "") or "").strip()
+    if not family_best or family_best == MII_CHARACTER_NAME:
+        return None
+    confidence = _safe_float(row.get("CharacterFamilyBestCoeff", row.get("CharacterMatchConfidence", 0.0)), default=0.0)
+    margin = _safe_float(row.get("CharacterFamilyMargin", 0.0), default=0.0)
+    if confidence < MII_PRESERVE_STRONG_ROW_CONFIDENCE or margin < MII_PRESERVE_STRONG_FAMILY_MARGIN:
+        return None
+    return {
+        "Character": family_best,
+        "CharacterIndex": row.get("CharacterFamilyBestIndex", row.get("CharacterIndex")),
+        "CharacterMatchConfidence": confidence,
+        "CharacterMatchRawMargin": margin,
+        "group_key": _stable_character_group_key(family_best),
+        "family_refinement_candidate": True,
+    }
+
+
+def _probe_closed_set_character_candidate(
+    row: pd.Series,
+    templates: list[dict[str, object]],
+    frame_cache: dict[tuple[str, int], tuple[np.ndarray | None, str]],
+) -> dict[str, object] | None:
+    if not templates:
+        return None
+    race_class = str(row.get("RaceClass", "") or "")
+    try:
+        race_id = int(row.get("RaceIDNumber", 0) or 0)
+        position = int(row.get("RacePosition", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    if not race_class or race_id <= 0 or position <= 0:
+        return None
+    cache_key = (race_class, race_id)
+    if cache_key not in frame_cache:
+        preferred_frame = find_score_bundle_anchor_path(race_class, race_id, "2RaceScore")
+        if preferred_frame is None:
+            frame_cache[cache_key] = (None, "")
+        else:
+            frame_cache[cache_key] = (
+                cv2.imread(str(preferred_frame), cv2.IMREAD_COLOR),
+                score_layout_id_from_filename(preferred_frame),
+            )
+    frame_image, score_layout_id = frame_cache[cache_key]
+    if frame_image is None:
+        return None
+    (x1, y1), (x2, y2) = character_row_roi(position - 1, score_layout_id=score_layout_id)
+    row_roi = frame_image[y1:y2, x1:x2]
+    if row_roi.size == 0:
+        return None
+    matches = best_character_matches(row_roi, templates, limit=5)
+    if not matches:
+        return None
+    best_match = dict(matches[0])
+    second_match = matches[1] if len(matches) > 1 else {"CharacterMatchConfidence": 0.0}
+    fifth_match = matches[4] if len(matches) > 4 else best_match
+    character_name = str(best_match.get("Character", "") or "").strip()
+    if not character_name or character_name == MII_CHARACTER_NAME:
+        return None
+    best_match["group_key"] = _stable_character_group_key(character_name)
+    best_confidence = _safe_float(best_match.get("CharacterMatchConfidence", 0.0), default=0.0)
+    best_match["CharacterMatchRawMargin"] = round(
+        best_confidence - _safe_float(second_match.get("CharacterMatchConfidence", 0.0), default=0.0),
+        1,
+    )
+    best_match["CharacterMatchRawTop5Spread"] = round(
+        best_confidence - _safe_float(fifth_match.get("CharacterMatchConfidence", best_confidence), default=best_confidence),
+        1,
+    )
+    best_match["closed_set_probe"] = True
+    return best_match
+
+
+def _stable_closed_set_group_evidence(player_rows: pd.DataFrame) -> dict[str, object] | None:
+    templates = load_character_templates()
+    frame_cache: dict[tuple[str, int], tuple[np.ndarray | None, str]] = {}
+    candidates_by_row: dict[int, dict[str, object]] = {}
+    confidences_by_key: dict[str, list[float]] = defaultdict(list)
+    counts_by_key: dict[str, int] = {}
+    names_by_key: dict[str, Counter] = defaultdict(Counter)
+
+    for row_index, row in player_rows.iterrows():
+        candidate = _closed_set_candidate_from_existing_row(row)
+        if candidate is None:
+            candidate = _closed_set_candidate_from_family_refinement(row)
+        if candidate is None:
+            method = str(row.get("CharacterMatchMethod", "") or "").strip()
+            character_name = str(row.get("Character", "") or "").strip()
+            if character_name != MII_CHARACTER_NAME and not _is_mii_likely_method(method):
+                continue
+            candidate = _probe_closed_set_character_candidate(row, templates, frame_cache)
+        if candidate is None:
+            continue
+        confidence = _safe_float(candidate.get("CharacterMatchConfidence", 0.0), default=0.0)
+        margin = _safe_float(candidate.get("CharacterMatchRawMargin", 0.0), default=0.0)
+        is_probe = bool(candidate.get("closed_set_probe", False))
+        if confidence < MII_PRESERVE_MIN_CONFIDENCE and not (
+            is_probe
+            and confidence >= MII_PRESERVE_PROBE_MIN_CONFIDENCE
+            and margin >= MII_PRESERVE_PROBE_MIN_MARGIN
+        ):
+            continue
+        group_key = str(candidate.get("group_key", "") or "")
+        character_name = str(candidate.get("Character", "") or "").strip()
+        if not group_key or not character_name:
+            continue
+        candidates_by_row[row_index] = candidate
+        counts_by_key[group_key] = counts_by_key.get(group_key, 0) + 1
+        confidences_by_key[group_key].append(confidence)
+        name_weight = 100 if bool(candidate.get("family_refinement_candidate", False)) else 1
+        names_by_key[group_key][character_name] += name_weight
+
+    if not counts_by_key:
+        return None
+    dominant_key, dominant_count = max(counts_by_key.items(), key=lambda item: (item[1], item[0]))
+    dominant_ratio = float(dominant_count) / max(1, len(player_rows.index))
+    dominant_confidences = confidences_by_key.get(dominant_key, [])
+    avg_confidence = (
+        float(sum(dominant_confidences) / max(1, len(dominant_confidences)))
+        if dominant_confidences
+        else 0.0
+    )
+    dominant_candidates = [
+        candidate
+        for candidate in candidates_by_row.values()
+        if str(candidate.get("group_key", "") or "") == dominant_key
+    ]
+    dominant_probe_margins = [
+        _safe_float(candidate.get("CharacterMatchRawMargin", 0.0), default=0.0)
+        for candidate in dominant_candidates
+        if bool(candidate.get("closed_set_probe", False))
+    ]
+    avg_probe_margin = (
+        float(sum(dominant_probe_margins) / max(1, len(dominant_probe_margins)))
+        if dominant_probe_margins
+        else 0.0
+    )
+    confidence_ok = avg_confidence >= MII_PRESERVE_MIN_CONFIDENCE or (
+        avg_confidence >= MII_PRESERVE_PROBE_MIN_CONFIDENCE
+        and avg_probe_margin >= MII_PRESERVE_PROBE_MIN_MARGIN
+    )
+    if (
+        dominant_count < MII_ACCEPT_MIN_RACES
+        or dominant_ratio < MII_PRESERVE_MIN_DOMINANT_RATIO
+        or not confidence_ok
+    ):
+        return None
+    dominant_name = names_by_key[dominant_key].most_common(1)[0][0]
+    dominant_candidate = next(
+        (
+            candidate
+            for candidate in candidates_by_row.values()
+            if str(candidate.get("group_key", "") or "") == dominant_key
+            and str(candidate.get("Character", "") or "").strip() == dominant_name
+        ),
+        None,
+    )
+    return {
+        "group_key": dominant_key,
+        "dominant_name": dominant_name,
+        "dominant_candidate": dominant_candidate,
+        "candidates_by_row": candidates_by_row,
+    }
+
+
+def _apply_closed_set_group_repair(
+    df: pd.DataFrame,
+    player_rows: pd.DataFrame,
+    evidence: dict[str, object],
+) -> None:
+    dominant_key = str(evidence.get("group_key", "") or "")
+    dominant_candidate = evidence.get("dominant_candidate")
+    candidates_by_row = evidence.get("candidates_by_row") or {}
+    if not dominant_key or not isinstance(candidates_by_row, dict):
+        return
+    for row_index in player_rows.index:
+        row = df.loc[row_index]
+        method = str(row.get("CharacterMatchMethod", "") or "").strip()
+        character_name = str(row.get("Character", "") or "").strip()
+        row_key = _stable_character_group_key(character_name) if character_name and character_name != MII_CHARACTER_NAME else ""
+        if row_key == dominant_key and _row_has_preservable_closed_set_evidence(row):
+            continue
+        if character_name != MII_CHARACTER_NAME and not _is_mii_likely_method(method) and MII_CHARACTER_METHOD not in method:
+            continue
+        candidate = candidates_by_row.get(row_index)
+        if not candidate or str(candidate.get("group_key", "") or "") != dominant_key:
+            candidate = dominant_candidate
+        elif bool(candidate.get("closed_set_probe", False)) and isinstance(dominant_candidate, dict) and not bool(
+            dominant_candidate.get("closed_set_probe", False)
+        ):
+            candidate = dominant_candidate
+        if not isinstance(candidate, dict):
+            continue
+        repaired_character = str(candidate.get("Character", "") or "").strip()
+        if not repaired_character or repaired_character == MII_CHARACTER_NAME:
+            continue
+        df.at[row_index, "Character"] = repaired_character
+        df.at[row_index, "CharacterIndex"] = candidate.get("CharacterIndex")
+        df.at[row_index, "CharacterMatchConfidence"] = round(
+            _safe_float(candidate.get("CharacterMatchConfidence", row.get("CharacterMatchConfidence", 0.0))),
+            1,
+        )
+        existing_method = str(df.at[row_index, "CharacterMatchMethod"] or "").strip()
+        if MII_CLOSED_SET_GROUP_REPAIR_METHOD not in existing_method:
+            df.at[row_index, "CharacterMatchMethod"] = (
+                f"{existing_method}+{MII_CLOSED_SET_GROUP_REPAIR_METHOD}"
+                if existing_method
+                else MII_CLOSED_SET_GROUP_REPAIR_METHOD
+            )
 
 
 def annotate_raw_character_match_metrics(df: pd.DataFrame, frames_folder: str | Path) -> pd.DataFrame:
@@ -1850,6 +2277,11 @@ def apply_mii_character_fallback(df: pd.DataFrame) -> pd.DataFrame:
             method = str(row.get("CharacterMatchMethod", "") or "").strip()
             if winner == MII_CHARACTER_NAME or "open_set_mii_reject" in method or "character_prior_mii_likely" in method:
                 mii_signal_count += 1
+        if mii_signal_count:
+            stable_evidence = _stable_closed_set_group_evidence(player_rows)
+            if stable_evidence is not None:
+                _apply_closed_set_group_repair(df, player_rows, stable_evidence)
+                continue
 
         closed_set_indices = []
         winner_counts: dict[str, int] = {}
@@ -1893,6 +2325,8 @@ def apply_mii_character_fallback(df: pd.DataFrame) -> pd.DataFrame:
             if mii_signal_count < MII_GROUP_FALLBACK_MIN_SIGNALS:
                 continue
             for row_index in player_rows.index:
+                if _row_has_strong_family_refined_evidence(df.loc[row_index]):
+                    continue
                 existing_method = str(df.at[row_index, "CharacterMatchMethod"] or "").strip()
                 df.at[row_index, "Character"] = MII_CHARACTER_NAME
                 df.at[row_index, "CharacterIndex"] = MII_CHARACTER_INDEX
@@ -1917,10 +2351,14 @@ def apply_mii_character_fallback(df: pd.DataFrame) -> pd.DataFrame:
         )
         if closed_set_is_stable:
             continue
+        if _has_stable_closed_set_character_group(player_rows):
+            continue
         if mii_signal_count < MII_GROUP_FALLBACK_MIN_SIGNALS:
             continue
 
         for row_index in player_rows.index:
+            if _row_has_strong_family_refined_evidence(df.loc[row_index]):
+                continue
             existing_method = str(df.at[row_index, "CharacterMatchMethod"] or "").strip()
             df.at[row_index, "Character"] = MII_CHARACTER_NAME
             df.at[row_index, "CharacterIndex"] = MII_CHARACTER_INDEX
@@ -2051,6 +2489,7 @@ def process_race_group(grouped_item, text_detected_folder, metadata_index, input
         preselected_race_point_anchor_frame=preselected_points_anchor_frame,
         preselected_point_frames=preselected_point_frames,
         preselected_late_frames=preselected_late_frames,
+        character_match_mode="raw_stateless" if character_prior_replay_enabled() else "stateful",
     )
     num_players = len(consensus["rows"])
     race_score_players = int(consensus.get("score_visible_rows", num_players))
@@ -2232,6 +2671,73 @@ def build_grouped_race_item(
     return key, images
 
 
+def _result_row_character_match(row: list) -> dict[str, object]:
+    return {
+        "Character": row[RESULT_CHARACTER_INDEX],
+        "CharacterIndex": row[RESULT_CHARACTER_CLASS_INDEX],
+        "CharacterMatchConfidence": _safe_float(row[RESULT_CHARACTER_CONFIDENCE_INDEX], default=0.0),
+        "CharacterMatchMethod": row[RESULT_CHARACTER_METHOD_INDEX],
+        "CharacterMatchRawBest": row[RESULT_CHARACTER_RAW_BEST_INDEX],
+        "CharacterMatchRawMargin": row[RESULT_CHARACTER_RAW_MARGIN_INDEX],
+        "CharacterMatchRawTop5Spread": row[RESULT_CHARACTER_RAW_TOP5_SPREAD_INDEX],
+        "CharacterMatchRawTop5FamilyCount": row[RESULT_CHARACTER_RAW_TOP5_FAMILY_COUNT_INDEX],
+    }
+
+
+def _apply_character_match_to_result_row(row: list, match: dict[str, object]) -> None:
+    row[RESULT_CHARACTER_INDEX] = match.get("Character", "")
+    row[RESULT_CHARACTER_CLASS_INDEX] = match.get("CharacterIndex")
+    row[RESULT_CHARACTER_CONFIDENCE_INDEX] = match.get("CharacterMatchConfidence", 0.0)
+    row[RESULT_CHARACTER_METHOD_INDEX] = match.get("CharacterMatchMethod", "")
+    row[RESULT_CHARACTER_RAW_BEST_INDEX] = match.get("CharacterMatchRawBest")
+    row[RESULT_CHARACTER_RAW_MARGIN_INDEX] = match.get("CharacterMatchRawMargin")
+    row[RESULT_CHARACTER_RAW_TOP5_SPREAD_INDEX] = match.get("CharacterMatchRawTop5Spread")
+    row[RESULT_CHARACTER_RAW_TOP5_FAMILY_COUNT_INDEX] = match.get("CharacterMatchRawTop5FamilyCount")
+
+
+def replay_character_priors_for_results(results: list[list]) -> dict[str, int]:
+    if not character_prior_replay_enabled() or not results:
+        return {"enabled": 0, "races": 0, "rows": 0}
+
+    reset_character_shortlist_state()
+    sorted_rows = sorted(
+        results,
+        key=lambda row: (
+            str(row[RESULT_RACE_CLASS_INDEX]),
+            int(row[RESULT_RACE_ID_INDEX] or 0),
+            int(row[RESULT_RACE_POSITION_INDEX] or 0),
+        ),
+    )
+    race_key_counts: dict[tuple[str, int], Counter] = defaultdict(Counter)
+    for row in sorted_rows:
+        race_key = (str(row[RESULT_RACE_CLASS_INDEX]), int(row[RESULT_RACE_ID_INDEX] or 0))
+        player_key = player_identity_key(str(row[RESULT_PLAYER_NAME_INDEX] or ""))
+        if len(player_key) >= 3:
+            race_key_counts[race_key][player_key] += 1
+
+    replayed_races: set[tuple[str, int]] = set()
+    replayed_rows = 0
+    for row in sorted_rows:
+        race_class = str(row[RESULT_RACE_CLASS_INDEX])
+        race_id = int(row[RESULT_RACE_ID_INDEX] or 0)
+        player_name = str(row[RESULT_PLAYER_NAME_INDEX] or "")
+        player_key = player_identity_key(player_name)
+        allow_prior = bool(player_key) and race_key_counts[(race_class, race_id)][player_key] <= 1
+        replayed_match = replay_character_prior_match(
+            race_class,
+            player_name,
+            _safe_float(row[RESULT_NAME_CONFIDENCE_INDEX], default=0.0),
+            _result_row_character_match(row),
+            race_id_number=race_id,
+            allow_prior=allow_prior,
+        )
+        _apply_character_match_to_result_row(row, replayed_match)
+        replayed_races.add((race_class, race_id))
+        replayed_rows += 1
+
+    return {"enabled": 1, "races": len(replayed_races), "rows": replayed_rows}
+
+
 def finalize_ocr_results(
     results: list[list],
     *,
@@ -2384,7 +2890,8 @@ def process_images_in_folder(
     progress_callback=None,
 ):
     phase_start_time = time.time()
-    ocr_workers = current_ocr_workers()
+    ocr_worker_policy = current_ocr_worker_policy()
+    ocr_workers = int(ocr_worker_policy["effective_workers"])
     ocr_consensus_frames = load_app_config().ocr_consensus_frames
     reset_observation_stage_stats()
     reset_call_matrix_stats()
@@ -2424,9 +2931,21 @@ def process_images_in_folder(
         LOGGER.log("[OCR - Read text from image - Phase Start]", "", color_name="magenta")
         LOGGER.log(
             "[OCR - Settings]",
-            f"OCR workers: {ocr_workers} | Consensus frames: {ocr_consensus_frames} | Input race groups: {len(sorted_grouped_images)}",
+            f"OCR workers: {ocr_workers} effective, {ocr_worker_policy['configured_workers']} configured | "
+            f"Consensus frames: {ocr_consensus_frames} | Input race groups: {len(sorted_grouped_images)}",
             color_name="magenta",
         )
+        LOGGER.log(
+            "[OCR - Settings]",
+            f"OCR worker policy: {ocr_worker_policy['reason']}",
+            color_name="magenta",
+        )
+        if easyocr_gpu_enabled():
+            LOGGER.log(
+                "[OCR - Settings]",
+                f"EasyOCR reader lock: {'enabled' if easyocr_reader_lock_enabled() else 'disabled by MK8_DISABLE_EASYOCR_READER_LOCK'}",
+                color_name="magenta" if easyocr_reader_lock_enabled() else "yellow",
+            )
         if selected_race_classes is not None:
             LOGGER.log(
                 "[OCR - Settings]",
@@ -2551,6 +3070,17 @@ def process_images_in_folder(
                                 f"Video: {race_class} | Race: {race_id_number:03} | Track: {matching_summary['track_name']} | {warning_message}",
                                 color_name="yellow",
                             )
+
+    replay_summary = replay_character_priors_for_results(results)
+    if emit_logs and replay_summary.get("enabled"):
+        LOGGER.log(
+            "[OCR - Settings]",
+            (
+                f"Character prior replay: {replay_summary['rows']} rows across "
+                f"{replay_summary['races']} races in deterministic order"
+            ),
+            color_name="magenta",
+        )
 
     ocr_profiler_lines = []
     if headless_debug_enabled():

@@ -45,6 +45,8 @@ echo
 echo "Setup finished."
 echo "This app runs from the local .venv in this project folder."
 echo "No global Python package install or PATH change is required for mk8-local-play."
+echo "Linux/macOS setup is CPU-first. For Linux CUDA OCR, install a CUDA-enabled PyTorch wheel in this .venv and rerun --check."
+echo "macOS currently runs CPU OCR; Apple Metal/MPS acceleration is not wired into this project."
 echo "Next steps:"
 echo "1. Install Tesseract if --check reports it missing."
 echo "2. Put videos into Input_Videos."

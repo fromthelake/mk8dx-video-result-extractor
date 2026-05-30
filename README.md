@@ -35,6 +35,13 @@ For first-time setup on Windows, follow the steps in this README from **Step 1**
 Linux/macOS setup:
 - [docs/LINUX_MACOS_SETUP.md](./docs/LINUX_MACOS_SETUP.md)
 
+Platform status:
+- Windows 11 is the actively validated reference platform.
+- Linux and macOS are intended desktop targets and have a separate setup guide, but they should be validated with `--check` and a scoped sample run after dependency changes.
+- Linux/macOS setup is CPU-first. Linux can use CUDA OCR when the local `.venv` contains a CUDA-enabled PyTorch build; the Windows setup script installs that automatically, while Linux setup documents the optional CUDA PyTorch install step.
+- macOS is expected to run CPU OCR by default; CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
+- iOS is not a supported target. This is a desktop Python/FFmpeg/OpenCV/EasyOCR application, not a mobile app.
+
 Scan/debug tooling reference:
 - [docs/SCAN_DEBUG_TOOLS.md](./docs/SCAN_DEBUG_TOOLS.md)
 
@@ -138,6 +145,14 @@ Character OCR now also includes a roster-family variant refinement pass before t
 - the default/base roster member stays in the family comparison instead of being treated separately
 - the refinement uses the same aligned alpha-cutout color scoring as character matching, across the calibrated local alignment offsets, from the saved RaceScore anchor frame
 - this is intended to stabilize true family members before the conservative `Mii` fallback is allowed to relabel them
+
+Latest Mii/character-prior status:
+- character priors are no longer updated while parallel OCR race jobs are still completing out of order
+- OCR first records raw/stateless character evidence, then replays prior decisions deterministically in video/race/position order
+- this fixed the CPU path where the same raw player names and same raw character evidence could still produce extra `Mii` labels because global prior state was built out of order
+- a full CPU replay run on `2026-03-28/eind_ronde` matched the CUDA debug output on players, scores, totals, positions, and debug-level characters across `1120` rows
+- the two remaining differences against the older CUDA workbook were manually checked in screenshots and were corrected from false `Mii` labels to `Black Yoshi` and `Blue Yoshi`
+- CUDA itself was not the root cause in that case; the older workbook was affected by prior/fallback post-processing, while the raw/debug evidence already supported the Yoshi variants
 
 Family-variant debug probe on saved character crops:
 - `.\.venv\Scripts\python.exe tools\evaluate_character_variant_families.py --crop-dir Output_Results\Debug\character_probe_20260328`
@@ -269,6 +284,11 @@ This setup script:
 - uses Python 3.12 specifically and stops if only a newer Python is installed
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
+- installs CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 wheel index:
+  - `torch==2.10.0+cu128`
+  - `torchvision==0.25.0+cu128`
+- keeps PyTorch out of the normal project dependency list on purpose, because a plain `torch` dependency can let pip install a CPU-only wheel
+- still falls back cleanly at runtime if CUDA is not available; `--check` reports the installed PyTorch build, CUDA availability, and selected OCR backend
 - does not require a global install of this app
 - does not require adding `mk8-local-play` to PATH
 
@@ -313,7 +333,12 @@ Runtime GPU mode defaults:
 - extraction defaults to `cpu` because that is the fastest verified setting on this machine profile
 - in `auto`, extraction uses CUDA when available and otherwise falls back to CPU
 - OpenCL extraction remains available through explicit `GPU` mode, but is not chosen automatically
-- when EasyOCR is using GPU, effective OCR workers stay at `1`
+- EasyOCR GPU mode requires a CUDA-enabled PyTorch install; on Windows `scripts/setup_windows.ps1` installs the CUDA 12.8 PyTorch wheels used by the reference environment instead of relying on pip's default CPU wheel selection
+- `--check` prints PyTorch version/build, CUDA availability, CUDA device name, OpenCV CUDA/OpenCL state, and the selected extract/OCR backend reasons
+- when EasyOCR is using GPU, effective OCR workers default to `2` with the per-reader EasyOCR lock still enabled; local scoped benchmarks showed this overlaps surrounding OCR/post-processing work without changing output
+- `MK8_CUDA_OCR_WORKERS=<n>` and `MK8_DISABLE_EASYOCR_READER_LOCK=1` remain benchmark-only CUDA OCR experiments; keep the default unless a scoped benchmark proves both faster runtime and identical output
+- when EasyOCR is forced to CPU, OCR can still use the configured worker count because character matching now runs in two passes: parallel raw OCR/evidence collection first, then deterministic character-prior replay in video/race/position order
+- `MK8_CHARACTER_PRIOR_REPLAY=0` disables that two-pass replay and falls back to the safer serial character-prior behavior for investigation
 - `overlap_ocr_mode` now defaults to `auto`
 - `overlap_ocr_consumers` now defaults to `2`
 - in overlap `auto`, multi-video full runs use the streamed per-race overlap path only when EasyOCR CUDA is available; otherwise runs stay on the existing sequential path

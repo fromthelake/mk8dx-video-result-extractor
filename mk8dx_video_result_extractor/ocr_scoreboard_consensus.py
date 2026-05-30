@@ -1,4 +1,6 @@
 import difflib
+import json
+import logging
 import os
 import re
 import time
@@ -26,7 +28,7 @@ except Exception:
     torch = None
 
 from .app_runtime import easyocr_gpu_enabled as runtime_easyocr_gpu_enabled, load_app_config
-from .data_paths import resolve_asset_file
+from .data_paths import resolve_asset_file, resolve_game_catalog_file
 from .extract_common import EXPORT_IMAGE_FORMAT
 from .game_catalog import load_game_catalog
 from .name_unicode import (
@@ -38,8 +40,10 @@ from .name_unicode import (
     visible_name_length,
 )
 from .score_layouts import DEFAULT_SCORE_LAYOUT_ID, get_score_layout
+from .project_paths import PROJECT_ROOT
 
 APP_CONFIG = load_app_config()
+LOGGER = logging.getLogger(__name__)
 _DIGIT_EASYOCR_READER = None
 _DIGIT_EASYOCR_LOCK = threading.Lock()
 PLAYER_NAME_COORDS = get_score_layout(DEFAULT_SCORE_LAYOUT_ID).player_name_coords
@@ -97,6 +101,7 @@ OBSERVATION_STAGE_STATS = defaultdict(lambda: {"calls": 0, "seconds": 0.0})
 CALL_MATRIX_STATS = defaultdict(lambda: {"calls": 0, "seconds": 0.0})
 CHARACTER_SHORTLIST_BY_VIDEO = defaultdict(dict)
 CHARACTER_SHORTLIST_LOCK = threading.Lock()
+CHARACTER_PRIOR_TRACE_LOCK = threading.Lock()
 CHARACTER_SHORTLIST_STATS = defaultdict(int)
 PLAYER_CHARACTER_PRIORS = defaultdict(dict)
 CHARACTER_SHORTLIST_MIN_CONFIDENCE = 50.0
@@ -502,16 +507,25 @@ def load_position_row_template_tiles() -> Dict[str, List[Tuple[np.ndarray, np.nd
 def load_character_templates() -> List[Dict[str, object]]:
     """Load full-color character icon templates from the catalog-backed asset folder."""
     catalog = load_game_catalog()
+    _validate_character_catalog(catalog.characters)
     templates = []
+    expected_count = 0
     for character in catalog.characters:
         if int(character.character_index) in EXCLUDED_CHARACTER_TEMPLATE_INDICES:
             continue
+        expected_count += 1
         template_path = resolve_asset_file("character", f"{character.character_index}.png")
         if not template_path.exists():
-            continue
+            raise FileNotFoundError(
+                f"Missing character template asset for index {character.character_index} "
+                f"({character.name_uk}): {template_path}"
+            )
         template_image = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
         if template_image is None:
-            continue
+            raise RuntimeError(
+                f"Could not load character template asset for index {character.character_index} "
+                f"({character.name_uk}): {template_path}"
+            )
         if len(template_image.shape) == 2:
             template_image = cv2.cvtColor(template_image, cv2.COLOR_GRAY2BGRA)
         elif template_image.shape[2] == 3:
@@ -534,7 +548,47 @@ def load_character_templates() -> List[Dict[str, object]]:
                 "aligned_variants": _build_aligned_template_variants(template_rgb, template_alpha),
             }
         )
+    if len(templates) != expected_count:
+        raise RuntimeError(f"Loaded {len(templates)} character templates, expected {expected_count}")
+    LOGGER.debug(
+        "Loaded %d character templates from %s; first mappings: %s",
+        len(templates),
+        resolve_game_catalog_file(),
+        _format_character_mappings(templates),
+    )
     return templates
+
+
+def _validate_character_catalog(characters) -> None:
+    indices = [int(character.character_index) for character in characters]
+    if len(indices) != len(set(indices)):
+        duplicates = sorted(index for index, count in Counter(indices).items() if count > 1)
+        raise RuntimeError(f"Duplicate character indices in game catalog: {duplicates}")
+    expected = list(range(0, len(indices)))
+    if sorted(indices) != expected:
+        raise RuntimeError(
+            "Game catalog character indices must be contiguous model/template indices "
+            f"0..{len(indices) - 1}; got {sorted(indices)[:12]}..."
+        )
+
+
+def _format_character_mappings(templates: List[Dict[str, object]], limit: int = 10) -> str:
+    return ", ".join(
+        f"{int(template['character_index'])}:{template['character_name']}"
+        for template in templates[:limit]
+    )
+
+
+def describe_character_catalog_runtime() -> Dict[str, object]:
+    catalog = load_game_catalog()
+    _validate_character_catalog(catalog.characters)
+    templates = load_character_templates()
+    return {
+        "catalog_path": str(resolve_game_catalog_file()),
+        "catalog_character_count": len(catalog.characters),
+        "loaded_template_count": len(templates),
+        "first_mappings": _format_character_mappings(templates),
+    }
 
 
 def shortlist_character_templates(templates: List[Dict[str, object]], allowed_indices: set[int]) -> List[Dict[str, object]]:
@@ -1037,6 +1091,79 @@ def _character_match_raw_stats(ranked_matches: List[Dict[str, object]] | None) -
     }
 
 
+def _character_prior_trace_enabled() -> bool:
+    return os.environ.get("MK8_TRACE_CHARACTER_PRIORS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _character_prior_trace_keys() -> set[str]:
+    raw_keys = os.environ.get("MK8_TRACE_CHARACTER_PRIOR_KEYS", "").strip()
+    if not raw_keys:
+        return set()
+    return {
+        player_identity_key(value)
+        for value in re.split(r"[,;]", raw_keys)
+        if player_identity_key(value)
+    }
+
+
+def _json_safe(value):
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        return float(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return value
+
+
+def _prior_state_trace_summary(prior_state: Dict[str, object] | None) -> Dict[str, object]:
+    if not prior_state:
+        return {}
+    closed_set_samples = int(prior_state.get("closed_set_samples", 0) or 0)
+    winner_counts = prior_state.get("winner_counts") if isinstance(prior_state.get("winner_counts"), dict) else {}
+    dominant_count = max((int(value or 0) for value in winner_counts.values()), default=0)
+    return {
+        "Character": str(prior_state.get("Character", "")),
+        "CharacterIndex": prior_state.get("CharacterIndex"),
+        "CharacterMatchConfidence": prior_state.get("CharacterMatchConfidence"),
+        "seen_count": int(prior_state.get("seen_count", 0) or 0),
+        "fast_accepts_since_revalidation": int(prior_state.get("fast_accepts_since_revalidation", 0) or 0),
+        "last_race_id": int(prior_state.get("last_race_id", 0) or 0),
+        "mii_likely": bool(prior_state.get("mii_likely", False)),
+        "closed_set_samples": closed_set_samples,
+        "winner_counts": dict(winner_counts),
+        "dominant_ratio": round(float(dominant_count) / max(1, closed_set_samples), 4) if closed_set_samples else 0.0,
+        "avg_confidence": round(float(prior_state.get("confidence_sum", 0.0) or 0.0) / max(1, closed_set_samples), 4) if closed_set_samples else 0.0,
+        "avg_margin": round(float(prior_state.get("margin_sum", 0.0) or 0.0) / max(1, closed_set_samples), 4) if closed_set_samples else 0.0,
+        "avg_spread": round(float(prior_state.get("spread_sum", 0.0) or 0.0) / max(1, closed_set_samples), 4) if closed_set_samples else 0.0,
+        "avg_family_count": round(float(prior_state.get("family_count_sum", 0.0) or 0.0) / max(1, closed_set_samples), 4) if closed_set_samples else 0.0,
+        "candidate_indices": list(prior_state.get("candidate_indices") or []),
+    }
+
+
+def _append_character_prior_trace(payload: Dict[str, object]) -> None:
+    if not _character_prior_trace_enabled():
+        return
+    trace_label = os.environ.get("MK8_OCR_TRACE_LABEL", "").strip() or "adhoc"
+    trace_mode = os.environ.get("MK8_OCR_TRACE_MODE", "").strip() or "ocr"
+    trace_path = PROJECT_ROOT / "Output_Results" / "Debug" / "OCR_Tracing" / trace_label / trace_mode / "character_prior_updates.jsonl"
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    with CHARACTER_PRIOR_TRACE_LOCK:
+        with trace_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(_json_safe(payload), ensure_ascii=False, sort_keys=True) + "\n")
+
+
 def update_player_character_prior(
     video_context: str | None,
     player_name: str,
@@ -1049,6 +1176,8 @@ def update_player_character_prior(
     player_key = player_identity_key(player_name)
     if len(player_key) < 3:
         return
+    trace_keys = _character_prior_trace_keys()
+    trace_this_key = _character_prior_trace_enabled() and (not trace_keys or player_key in trace_keys)
     character_index = match.get("CharacterIndex")
     if character_index is None:
         return
@@ -1059,6 +1188,7 @@ def update_player_character_prior(
     with CHARACTER_SHORTLIST_LOCK:
         player_priors = PLAYER_CHARACTER_PRIORS[str(video_context)]
         existing = player_priors.get(player_key)
+        before_summary = _prior_state_trace_summary(existing) if trace_this_key else {}
         if existing and int(existing["CharacterIndex"]) == int(character_index):
             existing["seen_count"] = int(existing.get("seen_count", 1)) + 1
             if match.get("CharacterMatchMethod") == "character_prior_confirm":
@@ -1093,6 +1223,21 @@ def update_player_character_prior(
         )
         if int(character_index) == MII_CHARACTER_INDEX:
             state["mii_likely"] = True
+            if trace_this_key:
+                _append_character_prior_trace(
+                    {
+                        "event": "update_player_character_prior",
+                        "video_context": video_context,
+                        "race_id_number": current_race_id,
+                        "player_name": player_name,
+                        "player_key": player_key,
+                        "match": match,
+                        "before": before_summary,
+                        "after": _prior_state_trace_summary(state),
+                        "mii_likely_transition": bool(not before_summary.get("mii_likely", False)),
+                        "mii_likely_reason": "direct_mii_match",
+                    }
+                )
             return
         winner_counts = state.get("winner_counts")
         if not isinstance(winner_counts, dict):
@@ -1121,6 +1266,25 @@ def update_player_character_prior(
         except (TypeError, ValueError):
             pass
         state["mii_likely"] = _prior_state_is_mii_likely(state)
+        if trace_this_key:
+            after_summary = _prior_state_trace_summary(state)
+            _append_character_prior_trace(
+                {
+                    "event": "update_player_character_prior",
+                    "video_context": video_context,
+                    "race_id_number": current_race_id,
+                    "player_name": player_name,
+                    "player_key": player_key,
+                    "match": match,
+                    "before": before_summary,
+                    "after": after_summary,
+                    "mii_likely_transition": bool(
+                        after_summary.get("mii_likely", False)
+                        and not before_summary.get("mii_likely", False)
+                    ),
+                    "mii_likely_reason": "closed_set_instability" if after_summary.get("mii_likely", False) else "",
+                }
+            )
 
 
 def _template_match_score(source_image: np.ndarray, template_image: np.ndarray) -> float:
@@ -1506,8 +1670,10 @@ def build_character_match_metrics(
     video_context: str | None = None,
     race_id_number: int | None = None,
     score_layout_id: str | None = None,
+    character_match_mode: str = "stateful",
 ) -> List[Dict[str, object]]:
     """Template-match the full-color character icons for each scoreboard row."""
+    stateless_mode = str(character_match_mode or "").strip().lower() == "raw_stateless"
     templates = load_character_templates()
     if not templates:
         return [
@@ -1522,7 +1688,7 @@ def build_character_match_metrics(
 
     image_height, image_width = frame_image.shape[:2]
     metrics = []
-    if CHARACTER_SHORTLIST_ACCELERATION_ENABLED:
+    if CHARACTER_SHORTLIST_ACCELERATION_ENABLED and not stateless_mode:
         with CHARACTER_SHORTLIST_LOCK:
             shortlist_indices = _eligible_character_shortlist_indices(
                 CHARACTER_SHORTLIST_BY_VIDEO.get(str(video_context or ""), {}),
@@ -1728,7 +1894,7 @@ def build_character_match_metrics(
             )
             best_match = full_matches[0] if full_matches else None
             second_match = full_matches[1] if len(full_matches) > 1 else None
-            if best_match is not None and video_context:
+            if best_match is not None and video_context and not stateless_mode:
                 best_index = int(best_match["CharacterIndex"])
                 with CHARACTER_SHORTLIST_LOCK:
                     shortlist = CHARACTER_SHORTLIST_BY_VIDEO[str(video_context)]
@@ -1779,11 +1945,108 @@ def build_character_match_metrics(
 
         if (
             CHARACTER_SHORTLIST_ACCELERATION_ENABLED
+            and not stateless_mode
             and metrics[-1].get("CharacterIndex") is not None
             and not duplicate_name_in_frame
         ):
             update_player_character_prior(video_context, player_name, metrics[-1], race_id_number=race_id_number)
     return metrics
+
+
+def replay_character_prior_match(
+    video_context: str | None,
+    player_name: str,
+    name_confidence: float,
+    raw_match: Dict[str, object],
+    *,
+    race_id_number: int | None = None,
+    allow_prior: bool = True,
+) -> Dict[str, object]:
+    """Apply character-prior decisions in deterministic race order from stateless raw evidence."""
+    match = dict(raw_match or {})
+    character_index = match.get("CharacterIndex")
+    if (
+        not CHARACTER_SHORTLIST_ACCELERATION_ENABLED
+        or not allow_prior
+        or not video_context
+        or character_index is None
+    ):
+        return match
+
+    player_key = player_identity_key(player_name)
+    if len(player_key) < 3:
+        return match
+
+    try:
+        current_race = int(race_id_number or 0)
+    except (TypeError, ValueError):
+        current_race = 0
+
+    with CHARACTER_SHORTLIST_LOCK:
+        prior_state = _eligible_player_character_priors(
+            PLAYER_CHARACTER_PRIORS.get(str(video_context or ""), {}),
+            current_race,
+        ).get(player_key)
+
+    confidence = float(match.get("CharacterMatchConfidence", 0.0) or 0.0)
+    raw_margin = float(match.get("CharacterMatchRawMargin", 0.0) or 0.0)
+    prior_is_mii_likely = _prior_state_is_mii_likely(prior_state)
+    duplicate_or_low_confidence = float(name_confidence or 0.0) < 80.0
+
+    if (
+        prior_state
+        and prior_is_mii_likely
+        and not duplicate_or_low_confidence
+        and int(prior_state.get("seen_count", 0)) >= MII_PRIOR_MIN_SAMPLES
+        and int(prior_state.get("fast_accepts_since_revalidation", 0)) < CHARACTER_PRIOR_MAX_FAST_ACCEPTS
+        and not _is_strong_closed_set_override(match, raw_margin)
+    ):
+        CHARACTER_SHORTLIST_STATS["prior_accepts"] += 1
+        CHARACTER_SHORTLIST_STATS["prior_mii_likely_accepts"] += 1
+        replayed = {
+            "Character": MII_CHARACTER_NAME,
+            "CharacterIndex": MII_CHARACTER_INDEX,
+            "CharacterMatchConfidence": round(confidence, 1),
+            "CharacterMatchMethod": "character_prior_mii_likely",
+            "CharacterMatchRawBest": match.get("CharacterMatchRawBest"),
+            "CharacterMatchRawMargin": match.get("CharacterMatchRawMargin"),
+            "CharacterMatchRawTop5Spread": match.get("CharacterMatchRawTop5Spread"),
+            "CharacterMatchRawTop5FamilyCount": match.get("CharacterMatchRawTop5FamilyCount"),
+            "CharacterMatchTopCandidateIndices": match.get("CharacterMatchTopCandidateIndices"),
+        }
+        update_player_character_prior(video_context, player_name, replayed, race_id_number=current_race)
+        return replayed
+
+    if prior_state and not duplicate_or_low_confidence:
+        prior_is_best = (
+            match.get("CharacterIndex") is not None
+            and prior_state.get("CharacterIndex") is not None
+            and int(match["CharacterIndex"]) == int(prior_state["CharacterIndex"])
+        )
+        prior_character_name = str(prior_state.get("Character", ""))
+        if (
+            prior_is_best
+            and confidence >= character_confidence_threshold(prior_character_name)
+            and raw_margin >= character_margin_threshold(prior_character_name)
+            and int(prior_state.get("seen_count", 0)) >= CHARACTER_PRIOR_STABLE_MIN_SEEN
+            and int(prior_state.get("fast_accepts_since_revalidation", 0)) < CHARACTER_PRIOR_MAX_FAST_ACCEPTS
+        ):
+            CHARACTER_SHORTLIST_STATS["prior_accepts"] += 1
+            match["CharacterMatchMethod"] = "character_prior_confirm"
+            update_player_character_prior(video_context, player_name, match, race_id_number=current_race)
+            return match
+        CHARACTER_SHORTLIST_STATS["prior_fallbacks"] += 1
+
+    best_index = match.get("CharacterIndex")
+    if best_index is not None:
+        with CHARACTER_SHORTLIST_LOCK:
+            shortlist = CHARACTER_SHORTLIST_BY_VIDEO[str(video_context)]
+            existing_first_seen = shortlist.get(int(best_index))
+            if existing_first_seen is None or current_race < int(existing_first_seen):
+                shortlist[int(best_index)] = current_race
+                CHARACTER_SHORTLIST_STATS["shortlist_expansions"] += 1
+        update_player_character_prior(video_context, player_name, match, race_id_number=current_race)
+    return match
 
 
 def masked_character_match_score(source_image: np.ndarray, template_image: np.ndarray, template_alpha: np.ndarray) -> Dict[str, float]:
@@ -1970,10 +2233,16 @@ def _frame_supports_low_res_row12_character_fallback(
     frame_image: np.ndarray,
     video_context: str | None = None,
     score_layout_id: str | None = None,
+    character_match_mode: str = "stateful",
 ) -> bool:
     processed_image = process_image(frame_image, score_layout_id=score_layout_id)
     position_metrics = build_position_signal_metrics(processed_image, score_layout_id=score_layout_id)
-    character_metrics = build_character_match_metrics(frame_image, video_context=video_context, score_layout_id=score_layout_id)
+    character_metrics = build_character_match_metrics(
+        frame_image,
+        video_context=video_context,
+        score_layout_id=score_layout_id,
+        character_match_mode=character_match_mode,
+    )
     observation = {
         "row_metrics": [
             {
@@ -2598,6 +2867,7 @@ def extract_scoreboard_observation(
     total_points_field_name: str = "",
     include_name_ocr: bool = True,
     is_low_res: bool = False,
+    character_match_mode: str = "stateful",
 ) -> Dict[str, object]:
     """Read one score frame into names, race points, totals, and a visible-row estimate."""
     score_layout = get_score_layout(score_layout_id)
@@ -2689,6 +2959,7 @@ def extract_scoreboard_observation(
             video_context=video_context,
             race_id_number=race_id_number,
             score_layout_id=score_layout.layout_id,
+            character_match_mode=character_match_mode,
         )
         record_observation_stage("character_metrics", time.perf_counter() - stage_start)
     else:
@@ -3497,7 +3768,8 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                                 score_layout_id: str | None = None,
                                 preselected_race_point_anchor_frame: int | None = None,
                                 preselected_point_frames: List[np.ndarray] | None = None,
-                                preselected_late_frames: List[np.ndarray] | None = None) -> Dict[str, object]:
+                                preselected_late_frames: List[np.ndarray] | None = None,
+                                character_match_mode: str = "stateful") -> Dict[str, object]:
     """Combine several neighbouring score frames into one stable observation."""
     if not frames:
         return {"rows": [], "visible_rows": 0, "row_count_confidence": 0.0, "name_confidence": 0.0, "digit_consensus": 0.0}
@@ -3526,6 +3798,7 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                 total_points_field_name="OldTotalScore",
                 include_name_ocr=not names_from_late_override,
                 is_low_res=bool(is_low_res),
+                character_match_mode=character_match_mode,
             )
         )
     score_core_observations = score_observations[-APP_CONFIG.ocr_consensus_frames:] or score_observations
@@ -3555,6 +3828,7 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                 race_points_field_name="RacePointsOnTotalScore",
                 total_points_field_name="NewTotalScore",
                 is_low_res=bool(is_low_res),
+                character_match_mode=character_match_mode,
             )
         )
     if not total_observations:
@@ -3580,6 +3854,7 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                     race_points_field_name="RacePoints",
                     total_points_field_name="OldTotalScore",
                     is_low_res=bool(is_low_res),
+                    character_match_mode=character_match_mode,
                 )
             )
     point_override_observations = []
@@ -3599,6 +3874,7 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                     total_points_field_name="OldTotalScore",
                     include_name_ocr=False,
                     is_low_res=bool(is_low_res),
+                    character_match_mode=character_match_mode,
                 )
             )
     if late_override_observations:
@@ -3685,6 +3961,7 @@ def build_consensus_observation(frames: List[np.ndarray], total_frames: List[np.
                 center_frame,
                 video_context=video_context,
                 score_layout_id=score_layout_id,
+                character_match_mode=character_match_mode,
             )
             ultra_low_res_center_frame_row12_support = _frame_supports_ultra_low_res_row12_blob_fallback(
                 center_frame,

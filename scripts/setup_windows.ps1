@@ -55,11 +55,15 @@ Assert-Python312 $python
 Write-Host "Using Python interpreter: $python"
 & $python -m pip install --upgrade pip setuptools wheel
 & $python -m pip install -e .
+Write-Host "Installing CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 index..."
+& $python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
 Remove-ProjectEggInfo $projectRoot
 
 if (-not (Test-Path $playExe)) {
     Write-Host "Console launchers missing after editable install, retrying with forced reinstall..."
     & $python -m pip install --force-reinstall -e .
+    Write-Host "Reinstalling CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 index..."
+    & $python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
     Remove-ProjectEggInfo $projectRoot
 }
 
@@ -77,6 +81,7 @@ Write-Host ""
 Write-Host "Setup finished."
 Write-Host "This app runs from the local .venv in this project folder."
 Write-Host "No global Python package install or PATH change is required for mk8-local-play."
+Write-Host "PyTorch is installed as the CUDA 12.8 build in this .venv; use --check to confirm CUDA availability."
 Write-Host "Next steps:"
 Write-Host "1. Install Tesseract if --check reports it missing."
 Write-Host "2. Put videos into Input_Videos."

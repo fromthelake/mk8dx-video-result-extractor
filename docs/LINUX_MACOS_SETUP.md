@@ -5,6 +5,15 @@ Short setup guide for Linux and macOS.
 GitHub:
 - https://github.com/fromthelake/mk8dx-video-result-extractor
 
+## Platform Status
+
+- Linux and macOS are intended desktop targets for the CLI and local desktop workflow.
+- Windows 11 is the actively benchmarked reference environment.
+- iOS is not supported. This project depends on desktop Python, FFmpeg, OpenCV, EasyOCR, and local filesystem access.
+- Linux GPU OCR can work when the local `.venv` has a CUDA-enabled PyTorch build installed for that machine.
+- macOS runs CPU OCR by default. CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
+- After setup, always run `.venv/bin/mk8-local-play --check` and then a scoped sample run before trusting a new Linux/macOS environment.
+
 ## Important
 
 For this project itself:
@@ -119,6 +128,7 @@ This setup script:
 - uses `python3.12` by default and stops if the interpreter is not Python 3.12
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
+- uses a CPU-compatible PyTorch install unless you explicitly install a platform-specific GPU PyTorch wheel afterward
 - does not require a global install of this app
 - does not require adding `mk8-local-play` to PATH
 
@@ -146,6 +156,52 @@ If setup fails:
 - if the script reports the wrong Python version, delete `.venv`, set `PYTHON_BIN` to Python 3.12, and rerun it
 - fix any other missing dependency
 - run `./scripts/setup_unix.sh` again
+
+## CPU And GPU Choices
+
+The safe baseline on Linux and macOS is CPU OCR:
+
+Terminal Command:
+--------------
+.venv/bin/mk8-local-play --check
+MK8_EASYOCR_GPU_MODE=cpu .venv/bin/mk8-local-play --check
+--------------
+
+Use CPU mode when:
+- the machine has no NVIDIA GPU
+- PyTorch reports a CPU-only build
+- you are setting up macOS
+- you want the most portable behavior first
+
+Linux NVIDIA CUDA OCR is optional. To use it, install a CUDA-enabled PyTorch wheel inside the project `.venv` after the normal setup:
+
+Terminal Command:
+--------------
+.venv/bin/python -m pip uninstall -y torch torchvision
+.venv/bin/python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
+.venv/bin/mk8-local-play --check
+--------------
+
+What you want to see in `--check`:
+- `PyTorch CUDA available: True`
+- a real CUDA device name
+- `EasyOCR mode: auto (ENABLED, backend=cuda, ...)`
+
+If `--check` still reports CPU:
+- confirm the NVIDIA driver is installed and visible with `nvidia-smi`
+- confirm you installed PyTorch into this project's `.venv`, not into a global Python
+- rerun `.venv/bin/python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"`
+- leave `easyocr_gpu_mode` on `auto` or set `MK8_EASYOCR_GPU_MODE=gpu` only when you want a clear warning if CUDA is unavailable
+
+macOS GPU note:
+- CUDA is not available on Apple hardware
+- this project does not currently use Apple Metal/MPS for EasyOCR
+- run macOS as CPU OCR unless the code is explicitly changed in the future to support another backend
+
+OpenCV/extraction GPU note:
+- the normal `opencv-python` package usually does not include OpenCV CUDA modules
+- extraction is allowed to run on CPU and is the default tuned path
+- CUDA PyTorch mainly accelerates EasyOCR, not every OpenCV image operation
 
 ## Step 6. Run the environment check
 

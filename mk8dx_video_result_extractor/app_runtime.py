@@ -320,6 +320,51 @@ def find_executable(name: str, extra_candidates: Optional[List[str]] = None) -> 
     return None
 
 
+def detect_torch_runtime() -> dict:
+    try:
+        import torch
+    except Exception as exc:
+        return {
+            "installed": False,
+            "version": "",
+            "cuda_build": "",
+            "cuda_available": False,
+            "device_count": 0,
+            "device_name": "",
+            "reason": f"PyTorch import failed: {exc}",
+        }
+
+    version = str(getattr(torch, "__version__", "") or "")
+    cuda_build = str(getattr(getattr(torch, "version", None), "cuda", "") or "")
+    cuda_available = False
+    device_count = 0
+    device_name = ""
+    reason = "CUDA is not available to PyTorch"
+    try:
+        cuda_available = bool(torch.cuda.is_available())
+        device_count = int(torch.cuda.device_count()) if cuda_available else 0
+        if cuda_available and device_count > 0:
+            device_name = str(torch.cuda.get_device_name(0) or "")
+            reason = f"PyTorch CUDA device available: {device_name or 'device 0'}"
+        elif not cuda_build:
+            reason = "Installed PyTorch build is CPU-only"
+    except Exception as exc:
+        cuda_available = False
+        device_count = 0
+        device_name = ""
+        reason = f"PyTorch CUDA probe failed: {exc}"
+
+    return {
+        "installed": True,
+        "version": version,
+        "cuda_build": cuda_build,
+        "cuda_available": cuda_available,
+        "device_count": device_count,
+        "device_name": device_name,
+        "reason": reason,
+    }
+
+
 def detect_gpu_runtime(config: AppConfig) -> dict:
     cuda_module = getattr(cv2, "cuda", None) if "cv2" in sys.modules else None
     cuda_devices = 0
@@ -374,20 +419,10 @@ def detect_gpu_runtime(config: AppConfig) -> dict:
 
 
 def easyocr_gpu_enabled(config: AppConfig) -> bool:
-    try:
-        import torch
-    except Exception:
-        torch = None
     mode = _parse_mode(config.easyocr_gpu_mode, "auto")
     if mode == "cpu":
         return False
-    if torch is None:
-        return False
-    try:
-        cuda_available = bool(torch.cuda.is_available())
-    except Exception:
-        cuda_available = False
-    return cuda_available
+    return bool(detect_torch_runtime()["cuda_available"])
 
 
 def effective_overlap_ocr_mode(config: AppConfig) -> str:
@@ -399,28 +434,21 @@ def effective_overlap_ocr_mode(config: AppConfig) -> str:
 
 def detect_easyocr_runtime(config: AppConfig) -> dict:
     mode = _parse_mode(config.easyocr_gpu_mode, "auto")
-    try:
-        import torch
-    except Exception:
-        torch = None
-    cuda_available = False
-    cuda_devices = 0
-    if torch is not None:
-        try:
-            cuda_available = bool(torch.cuda.is_available())
-            cuda_devices = int(torch.cuda.device_count()) if cuda_available else 0
-        except Exception:
-            cuda_available = False
-            cuda_devices = 0
+    torch_runtime = detect_torch_runtime()
+    cuda_available = bool(torch_runtime["cuda_available"])
+    cuda_devices = int(torch_runtime["device_count"])
     enabled = mode != "cpu" and cuda_available
     if mode == "cpu":
         reason = "CPU mode selected"
     elif cuda_available:
-        reason = f"CUDA device(s) available: {cuda_devices}"
+        device_name = str(torch_runtime["device_name"] or "").strip()
+        reason = f"PyTorch CUDA device(s) available: {cuda_devices}"
+        if device_name:
+            reason += f" ({device_name})"
     elif mode == "gpu":
-        reason = "Requested GPU mode, but CUDA was not available to EasyOCR"
+        reason = f"Requested GPU mode, but CUDA was not available to EasyOCR: {torch_runtime['reason']}"
     else:
-        reason = "Auto mode selected, but CUDA was not available to EasyOCR"
+        reason = f"Auto mode selected, but CUDA was not available to EasyOCR: {torch_runtime['reason']}"
     return {
         "available": cuda_available,
         "enabled": enabled,
@@ -428,6 +456,10 @@ def detect_easyocr_runtime(config: AppConfig) -> dict:
         "mode": mode,
         "backend": "cuda" if enabled else "cpu",
         "reason": reason,
+        "torch_version": torch_runtime["version"],
+        "torch_cuda_build": torch_runtime["cuda_build"],
+        "torch_cuda_available": torch_runtime["cuda_available"],
+        "torch_device_name": torch_runtime["device_name"],
     }
 
 

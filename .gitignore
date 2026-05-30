@@ -29,6 +29,7 @@ Output_Results/*_Final_Standings.csv
 Output_Results/_temp_*.xlsx
 
 # Local debug artifacts
+.ab_runs/
 Output_Results/Debug/debug_max_val.csv
 Output_Results/Debug/exported_frame_metadata.csv
 Output_Results/Debug/linking_*.xlsx

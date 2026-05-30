@@ -223,8 +223,13 @@ Current OCR runtime notes:
 - `auto` uses CUDA when PyTorch can see it and otherwise falls back to CPU
 - `gpu` requests CUDA explicitly and falls back to CPU with a clear runtime message if CUDA is unavailable
 - `cpu` disables GPU OCR even when CUDA is present
-- when GPU OCR is active, the pipeline forces effective OCR workers to `1`
-- this is intentional; local benchmarks showed per-process EasyOCR worker counts above `1` scale poorly, while the meaningful throughput gain comes from overlap scheduling across multiple OCR consumers
+- when GPU OCR is active, the pipeline defaults to `2` effective OCR workers while keeping the per-reader EasyOCR inference lock enabled
+- this is intentional; local benchmarks showed `2` workers can overlap surrounding OCR/post-processing work, while higher worker counts scale poorly
+- `MK8_CUDA_OCR_WORKERS=<n>` can temporarily override GPU OCR workers for benchmarking; it is experimental and should not be used as a release default without a correctness/performance comparison
+- `MK8_DISABLE_EASYOCR_READER_LOCK=1` disables the per-reader EasyOCR inference lock for benchmarking only; this can expose concurrency drift and must be validated against character/Mii baselines before trusting results
+- when EasyOCR runs on CPU, the OCR phase can use the configured worker count because character recognition now has a two-pass path: parallel raw OCR/evidence collection first, followed by deterministic character-prior replay
+- `MK8_CHARACTER_PRIOR_REPLAY=1` is the default; set it to `0` only for investigation, which falls back to serial character-prior behavior
+- the replay step sorts rows by video/race/position before updating `PLAYER_CHARACTER_PRIORS`, so CPU worker completion order cannot change Mii/character decisions
 - extraction `auto` prefers CUDA and otherwise falls back to CPU
 - extraction OpenCL remains available only through explicit `execution_mode=gpu`; it is no longer selected automatically
 
@@ -365,7 +370,8 @@ Current GPU-related settings:
   - default: `auto`
   - values: `auto`, `gpu`, `cpu`
   - controls EasyOCR name/track OCR GPU use
-  - the OCR phase forces effective OCR workers to `1` in GPU mode, because that was the best measured configuration on the current test machine
+  - requires a CUDA-enabled PyTorch build; `--check` reports the PyTorch version, CUDA build, device name, and fallback reason
+  - the OCR phase defaults to `2` effective OCR workers in GPU mode, because that was the best measured locked-reader configuration on the current test machine
 - `overlap_ocr_mode`
   - default: `auto`
   - values: `auto`, `video`, `race`
@@ -440,6 +446,10 @@ Low-resolution behavior:
 - unresolved low-res identities remain `PlayerNameMissing_X`
 - after score OCR and identity standardization, a session-level Mii fallback can relabel a player to `Mii` when the saved `2RaceScore` frames show repeatedly weak, near-tied, unstable non-Mii character winners
 - those rows receive review reason `mii_fallback_unstable_character_match`
+- Mii fallback is guarded by closed-set repair logic so stable character evidence, including family-refined variants, is not group-converted to `Mii` merely because an earlier prior state became Mii-likely
+- current validation status: a full CPU replay run on `2026-03-28/eind_ronde` produced `1120` rows and matched the CUDA debug run on players, scores, totals, positions, and debug-level characters
+- that same run differed from the older CUDA workbook on two rows only; both workbook `Mii` labels were manually checked against screenshots and confirmed to be Yoshi variants (`Black Yoshi` and `Blue Yoshi`)
+- conclusion from that validation: CUDA was not the root cause for those rows; the older workbook reflected post-processing/fallback state, while raw/debug evidence supported the closed-set Yoshi labels
 - before the Mii fallback, character-family refinement can now stabilize variant families from saved `2RaceScore` anchors:
   - catalog-backed color families such as `Birdo`, `Yoshi`, `Shy Guy`, and `Inkling`
   - the explicit `Peach` family: `Peach`, `Cat Peach`, `Baby Peach`, `Pink Gold Peach`, `Peachette`
@@ -543,7 +553,7 @@ When changing OCR process flow, preserve these rules unless a benchmark on repre
 - Seven-segment digit parsing is the primary digit reader. Re-enable digit OCR fallback only with measured proof that it improves final business output.
 - `inv_otsu` is the primary batch name OCR path. Additional raw OCR should stay conditional unless profiling proves otherwise.
 - Any change to fallback thresholds or OCR pass counts should be validated on larger extracted race classes, not only on the single-race demo.
-- In GPU OCR mode, keep effective OCR workers at `1` unless a new benchmark proves a better per-process OCR worker count on representative source videos.
+- In GPU OCR mode, keep effective OCR workers at `2` with the EasyOCR reader lock enabled unless a new benchmark proves a better per-process OCR worker count on representative source videos.
 - Overlap defaults now use `overlap_ocr_mode=auto` and `overlap_ocr_consumers=2`; keep higher overlap consumer counts experimental unless a new benchmark shows a stable throughput win.
  
 ## 11. Files To Read First
