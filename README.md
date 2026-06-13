@@ -512,26 +512,37 @@ PowerShell Command:
 --------------
 
 What it does:
-- starts the desktop GUI
-- from the GUI you can:
-  - open the input folder
-  - merge videos
-  - run extraction only
-  - run a scoped selection pass
-  - toggle subfolder-aware processing
-  - run OCR/export only
-  - open the latest Excel output
-  - clear extracted races or output results
+- starts the desktop GUI (a Mario Kart 8 Deluxe themed PySide6/Qt window)
 
-GUI command mapping:
-- `Find Races In Videos`
-  - finds and saves the race screens from your videos
-- `Run Selected Videos`
-  - does both steps in one go, but only for the selected videos
-- `Also Look In Subfolders`
-  - includes videos stored in folders inside `Input_Videos`
-- `Create Excel Results`
-  - reads the saved race screens and creates the Excel file
+The GUI is a cross-platform Qt application (Windows, Linux, macOS). It runs every
+long task in a separate process, so the window never freezes: you get a live,
+colour-coded activity log, a Rainbow Road progress bar, a working Cancel button,
+and a start-light status indicator.
+
+The window guides you through the run order top to bottom:
+- `1 Prepare videos`
+  - `Open Input_Videos` opens the folder where you drop tournament recordings
+  - `Combine Clips…` joins split recordings into one race session (uses ffmpeg)
+- `2 Choose videos`
+  - tick the videos to include in the next run (All / None / Refresh)
+  - `Also look in subfolders of Input_Videos` includes videos in subfolders
+- `3 Run the analysis`
+  - `FULL RUN` runs extraction + OCR + export for the ticked videos
+  - `Extract frames` and `OCR & export` run each stage on its own
+  - `Cancel` stops a running job
+- `Results`
+  - `Open Latest Excel` opens the most recent exported workbook
+  - `Open Frames` opens the extracted race screenshots
+- `Settings & cleanup`
+  - `Extraction` / `EasyOCR` GPU mode (AUTO / GPU / CPU), saved between sessions
+  - `Delete frames` / `Clear output` for a fresh rerun
+
+GUI requirements:
+- the GUI needs the optional `gui` extra (PySide6). The Windows setup script
+  installs it automatically; for a manual install run:
+  - `.\.venv\Scripts\python.exe -m pip install -e ".[gui]"`
+- if PySide6 is not installed, the app falls back to the legacy interface.
+  Force the legacy interface at any time with `--classic-gui`.
 
 Run everything:
 

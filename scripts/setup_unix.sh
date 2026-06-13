@@ -32,7 +32,7 @@ fi
 
 echo "Using Python interpreter: $VENV_PYTHON"
 ".venv/bin/python" -m pip install --upgrade pip
-".venv/bin/python" -m pip install -e .
+".venv/bin/python" -m pip install -e ".[gui]"
 
 if [[ ! -f "config/app_config.json" ]]; then
   echo "Missing config/app_config.json. Restore it from git before running setup." >&2

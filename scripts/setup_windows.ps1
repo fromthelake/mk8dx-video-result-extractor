@@ -54,14 +54,14 @@ $playExe = ".\.venv\Scripts\mk8-local-play.exe"
 Assert-Python312 $python
 Write-Host "Using Python interpreter: $python"
 & $python -m pip install --upgrade pip setuptools wheel
-& $python -m pip install -e .
+& $python -m pip install -e ".[gui]"
 Write-Host "Installing CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 index..."
 & $python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
 Remove-ProjectEggInfo $projectRoot
 
 if (-not (Test-Path $playExe)) {
     Write-Host "Console launchers missing after editable install, retrying with forced reinstall..."
-    & $python -m pip install --force-reinstall -e .
+    & $python -m pip install --force-reinstall -e ".[gui]"
     Write-Host "Reinstalling CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 index..."
     & $python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
     Remove-ProjectEggInfo $projectRoot

@@ -33,12 +33,19 @@ dependencies = [
   "tzdata==2024.2",
 ]
 
+[project.optional-dependencies]
+# Modern Qt desktop GUI. Optional so headless / CLI installs stay lean.
+# Install with: pip install -e ".[gui]"
+gui = [
+  "PySide6>=6.6,<6.9",
+]
+
 [project.scripts]
 mk8-local-play = "mk8dx_video_result_extractor.main:main"
 mk8dx-video-result-extractor = "mk8dx_video_result_extractor.main:main"
 
 [tool.setuptools.packages.find]
-include = ["mk8dx_video_result_extractor", "mk8dx_video_result_extractor_data"]
+include = ["mk8dx_video_result_extractor", "mk8dx_video_result_extractor.*", "mk8dx_video_result_extractor_data"]
 
 [tool.setuptools.package-data]
 mk8dx_video_result_extractor = [

@@ -115,7 +115,11 @@ class ConsoleLogger:
     def __init__(self):
         self.start_time = time.perf_counter()
         self.resources = ResourceMonitor()
-        self.use_color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+        # MK8_FORCE_COLOR lets the GUI request ANSI colour codes even though the
+        # child's stdout is a pipe (not a TTY), so the activity log can render the
+        # same colours as the console. NO_COLOR still wins as an explicit opt-out.
+        force_color = os.environ.get("MK8_FORCE_COLOR", "").strip().lower() in {"1", "true", "yes"}
+        self.use_color = (force_color or sys.stdout.isatty()) and os.environ.get("NO_COLOR") is None
         self._video_color_cache: dict[str, tuple[int, int, int]] = {}
         self._video_color_order: list[str] = []
 

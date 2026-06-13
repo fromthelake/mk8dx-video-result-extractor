@@ -2862,9 +2862,33 @@ def launch_gui() -> int:
     return 0
 
 
+def launch_gui_app() -> int:
+    """Launch the desktop GUI.
+
+    Prefers the modern PySide6/Qt interface (responsive, live progress, video
+    picker). Falls back to the classic Tkinter window when PySide6 is not
+    installed or when ``MK8_CLASSIC_GUI`` is set, so the GUI still works on a
+    minimal install.
+    """
+    force_classic = os.environ.get("MK8_CLASSIC_GUI", "").strip().lower() in {"1", "true", "yes"}
+    if not force_classic:
+        try:
+            from .gui import run as run_qt_gui
+        except Exception as exc:
+            print(
+                f"Qt GUI unavailable ({exc}); using the classic interface. "
+                "Install the GUI extra with: pip install \"PySide6>=6.6\"",
+                file=sys.stderr,
+            )
+        else:
+            return run_qt_gui()
+    return launch_gui()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Mario Kart 8 local play video processing")
     parser.add_argument("--check", action="store_true", help="Print runtime/dependency status")
+    parser.add_argument("--classic-gui", action="store_true", help="Force the legacy Tkinter GUI instead of the Qt interface")
     parser.add_argument("--clear-output-results", action="store_true", help="Clear all files under Output_Results after interactive confirmation")
     parser.add_argument("--extract", action="store_true", help="Run frame extraction only")
     parser.add_argument("--scan-test", action="store_true", help="Benchmark extraction/scan only without OCR")
@@ -2965,7 +2989,9 @@ def main() -> int:
                 ultra_low_res=args.ultra_low_res,
             )
         return 0
-    return launch_gui()
+    if args.classic_gui:
+        return launch_gui()
+    return launch_gui_app()
 
 
 if __name__ == "__main__":
