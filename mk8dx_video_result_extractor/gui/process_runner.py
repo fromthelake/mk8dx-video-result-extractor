@@ -3,7 +3,7 @@
 The heavy work (frame extraction, OCR, export) is executed by re-invoking the
 existing CLI (``python -m mk8dx_video_result_extractor.main <flags>``) as a
 separate process. This keeps the Qt event loop completely free — the window
-never freezes — and makes cancellation a simple "kill the process tree".
+never freezes — and keeps cancellation isolated from the GUI process itself.
 
 A :class:`QProcess` is used rather than ``subprocess`` + a thread because Qt
 delivers the child's stdout to the GUI thread via signals, so there is no
@@ -129,11 +129,14 @@ class PipelineRunner(QObject):
 
 
 def _kill_process_tree(process: QProcess) -> None:
-    """Best-effort kill of the child *and* any grandchildren it spawned.
+    """Best-effort termination of the child process.
 
     The pipeline can launch its own subprocess (the OCR module) and worker
     processes, so simply killing the direct child can leave orphans. On Windows
-    we use ``taskkill /T``; elsewhere we fall back to QProcess.kill().
+    we use ``taskkill /T``. On Unix-like platforms this PySide6 binding does
+    not expose a portable way to start the child in a new process group, so a
+    process-group kill could target the GUI's own group. There we terminate only
+    the direct child.
     """
     pid = int(process.processId())
     if pid <= 0:
@@ -151,12 +154,9 @@ def _kill_process_tree(process: QProcess) -> None:
             return
         except Exception:
             pass
-    else:
-        try:
-            import signal
-
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-            return
-        except Exception:
-            pass
+    if not sys.platform.startswith("win"):
+        process.terminate()
+        if not process.waitForFinished(1500):
+            process.kill()
+        return
     process.kill()

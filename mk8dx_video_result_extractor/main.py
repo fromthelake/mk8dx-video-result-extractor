@@ -690,10 +690,11 @@ def merge_videos() -> None:
 
     ensure_runtime_or_raise(require_ffmpeg=True)
 
+    video_patterns = ("*.mp4", "*.mkv", "*.avi", "*.mov", "*.webm")
     file_paths = filedialog.askopenfilenames(
         title="Select Videos to Merge",
         initialdir=str(INPUT_DIR),
-        filetypes=[("Video Files", "*.mp4;*.mkv;*.avi")],
+        filetypes=[("Video Files", video_patterns), ("All Files", "*")],
     )
     if not file_paths:
         return
@@ -2996,4 +2997,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

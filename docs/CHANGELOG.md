@@ -6,6 +6,11 @@ The format is intentionally simple and human-readable.
 
 ## [Unreleased]
 
+### Fixed
+- Made Qt GUI cancellation safer on Linux/macOS by avoiding process-group termination when the child process was not started in a separate process group.
+- Normalized Unix shell scripts to LF and marked them executable in Git.
+- Made the legacy Tk video-merge file picker use cross-platform video file patterns.
+
 ### Added
 - Tracked `config/app_config.example.json` so fresh clones have documented runtime defaults without committing local machine config.
 - `scripts/clean_generated.ps1` for reproducible cleanup of ignored cache/temp artifacts.
