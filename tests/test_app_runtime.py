@@ -41,14 +41,17 @@ def _config(easyocr_gpu_mode: str = "auto") -> AppConfig:
     )
 
 
-def _torch_runtime(cuda_available: bool) -> dict:
+def _torch_runtime(cuda_available: bool, *, hip_build: str = "", mps_available: bool = False) -> dict:
     return {
         "installed": True,
-        "version": "2.10.0+cu128" if cuda_available else "2.11.0+cpu",
-        "cuda_build": "12.8" if cuda_available else "",
+        "version": "2.10.0+cu128" if cuda_available and not hip_build else "2.10.0+cpu",
+        "cuda_build": "12.8" if cuda_available and not hip_build else "",
+        "hip_build": hip_build,
         "cuda_available": cuda_available,
+        "mps_available": mps_available,
         "device_count": 1 if cuda_available else 0,
-        "device_name": "NVIDIA Test GPU" if cuda_available else "",
+        "device_name": "NVIDIA Test GPU" if cuda_available and not hip_build else ("AMD Test GPU" if hip_build else ""),
+        "accelerator": "rocm" if hip_build else ("cuda" if cuda_available else ("mps" if mps_available else "cpu")),
         "reason": "test runtime",
     }
 
@@ -69,7 +72,7 @@ class EasyOcrRuntimeTests(unittest.TestCase):
 
         self.assertFalse(runtime["enabled"])
         self.assertEqual(runtime["backend"], "cpu")
-        self.assertIn("CUDA was not available", runtime["reason"])
+        self.assertIn("CUDA/ROCm was not available", runtime["reason"])
 
     def test_cpu_mode_disables_easyocr_gpu_even_when_torch_cuda_exists(self):
         with patch("mk8dx_video_result_extractor.app_runtime.detect_torch_runtime", return_value=_torch_runtime(True)):
@@ -78,6 +81,42 @@ class EasyOcrRuntimeTests(unittest.TestCase):
 
         self.assertFalse(runtime["enabled"])
         self.assertEqual(runtime["reason"], "CPU mode selected")
+
+    def test_auto_uses_rocm_when_pytorch_exposes_amd_through_cuda_api(self):
+        with patch(
+            "mk8dx_video_result_extractor.app_runtime.detect_torch_runtime",
+            return_value=_torch_runtime(True, hip_build="7.1"),
+        ):
+            runtime = detect_easyocr_runtime(_config("auto"))
+
+        self.assertTrue(runtime["enabled"])
+        self.assertEqual(runtime["backend"], "rocm")
+        self.assertEqual(runtime["torch_hip_build"], "7.1")
+        self.assertIn("ROCm", runtime["reason"])
+
+    def test_auto_does_not_enable_mps_experimental_path(self):
+        with patch(
+            "mk8dx_video_result_extractor.app_runtime.detect_torch_runtime",
+            return_value=_torch_runtime(False, mps_available=True),
+        ):
+            runtime = detect_easyocr_runtime(_config("auto"))
+
+        self.assertFalse(runtime["enabled"])
+        self.assertEqual(runtime["backend"], "cpu")
+        self.assertTrue(runtime["torch_mps_available"])
+        self.assertIn("MPS disabled", runtime["reason"])
+
+    def test_gpu_mode_can_enable_mps_experimental_path(self):
+        with patch(
+            "mk8dx_video_result_extractor.app_runtime.detect_torch_runtime",
+            return_value=_torch_runtime(False, mps_available=True),
+        ):
+            self.assertTrue(easyocr_gpu_enabled(_config("gpu")))
+            runtime = detect_easyocr_runtime(_config("gpu"))
+
+        self.assertTrue(runtime["enabled"])
+        self.assertEqual(runtime["backend"], "mps")
+        self.assertIn("Experimental PyTorch MPS", runtime["reason"])
 
 
 if __name__ == "__main__":

@@ -37,6 +37,7 @@ Install these system tools first:
 
 The app itself is installed only into the local `.venv` folder inside this project.
 Do not install `mk8-local-play` globally and do not add it to your system PATH.
+Setup scans your hardware and chooses a PyTorch package set before installing OCR dependencies. NVIDIA CUDA systems get the fast GPU path automatically; AMD, Intel, macOS, and no-GPU systems use the reliable CPU path unless you opt into an experimental mode.
 
 ### Windows Quick Install
 
@@ -151,11 +152,43 @@ Use `--selection --video <file-name>` for a small first test. Use `--all` only w
 
 ### Video Card Guidance
 
-- No NVIDIA GPU: supported, but OCR will usually be slower.
-- Windows with NVIDIA GPU: setup installs CUDA-enabled PyTorch wheels. If CUDA is unavailable, the app falls back to CPU behavior and explains that in `--check`.
-- Linux with NVIDIA GPU: optional. First make the CPU setup work, then install a CUDA-enabled PyTorch wheel into `.venv` and rerun `--check`.
-- macOS: CUDA is not available on Apple hardware. This project does not currently use Apple Metal/MPS, so expect CPU OCR.
-- AMD / Intel GPUs: no special acceleration path is verified. Use the default CPU settings first.
+- No GPU: supported. OCR will usually be slower, but this is a normal supported path.
+- NVIDIA GPU on Windows/Linux: setup auto-selects CUDA PyTorch when NVIDIA hardware is detected. This is the recommended fast path.
+- AMD GPU: EasyOCR has no direct AMD/OpenCL equivalent to NVIDIA CUDA. AMD may work through PyTorch ROCm on compatible systems, but this project treats ROCm as experimental and opt-in.
+- Intel GPU: no verified EasyOCR GPU path here. Setup uses CPU PyTorch.
+- macOS: setup uses CPU PyTorch by default. EasyOCR can attempt PyTorch MPS on some Macs, but this project treats MPS as experimental and opt-in.
+- If a GPU package is installed but PyTorch cannot use it, the app falls back to CPU and explains why in `--check`.
+
+Manual setup overrides:
+
+Windows:
+
+```powershell
+.\scripts\setup_windows.ps1 -TorchMode Cpu
+.\scripts\setup_windows.ps1 -TorchMode Cuda
+```
+
+Linux/macOS:
+
+```bash
+TORCH_MODE=cpu ./scripts/setup_unix.sh
+TORCH_MODE=cuda ./scripts/setup_unix.sh
+```
+
+Experimental, no-guarantee paths:
+
+```bash
+# Linux AMD ROCm only. Requires a ROCm-compatible AMD GPU, driver, and PyTorch wheel support.
+TORCH_MODE=rocm-experimental ./scripts/setup_unix.sh
+
+# macOS MPS test only. Runtime GPU use still requires MK8_EASYOCR_GPU_MODE=gpu.
+TORCH_MODE=mps-experimental ./scripts/setup_unix.sh
+MK8_EASYOCR_GPU_MODE=gpu .venv/bin/mk8-local-play --check
+```
+
+Windows AMD ROCm is not automated by this setup script. AMD/PyTorch support on Windows is card, driver, Python, and PyTorch-version specific; use CPU mode unless you are comfortable following current AMD/PyTorch instructions manually inside this project `.venv`, then verify with `--check` and a small sample run.
+
+If an experimental path fails setup, fails `--check`, runs slower, or gives driver errors, rerun setup in CPU mode and use the CPU path.
 
 ### If Setup Or Check Fails
 
@@ -480,13 +513,17 @@ This setup script:
 - creates or reuses the local `.venv` in this project folder
 - creates `config/app_config.json` from `config/app_config.example.json` if the local config is absent
 - uses Python 3.12 specifically and stops if only a newer Python is installed
+- checks that FFmpeg is available before downloading Python packages
+- scans the local video card hardware before choosing the PyTorch package set
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
-- installs CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 wheel index:
-  - `torch==2.10.0+cu128`
-  - `torchvision==0.25.0+cu128`
-- keeps PyTorch out of the normal project dependency list on purpose, because a plain `torch` dependency can let pip install a CPU-only wheel
-- still falls back cleanly at runtime if CUDA is not available; `--check` reports the installed PyTorch build, CUDA availability, and selected OCR backend
+- installs CUDA PyTorch automatically when NVIDIA hardware is detected
+- installs CPU PyTorch when NVIDIA hardware is not detected
+- accepts manual overrides:
+  - `.\scripts\setup_windows.ps1 -TorchMode Cpu`
+  - `.\scripts\setup_windows.ps1 -TorchMode Cuda`
+- keeps PyTorch out of the normal project dependency list on purpose, because setup must choose the intended CPU/CUDA wheel before EasyOCR is installed
+- still falls back cleanly at runtime if GPU acceleration is not available; `--check` reports the installed PyTorch build, CUDA/ROCm/MPS availability, and selected OCR backend
 - does not require a global install of this app
 - does not require adding `mk8-local-play` to PATH
 
@@ -530,11 +567,10 @@ Runtime hardware defaults:
 - keep the defaults for your first successful run
 - `execution_mode` controls OpenCV extraction acceleration and accepts `auto`, `gpu`, or `cpu`
 - `easyocr_gpu_mode` controls EasyOCR and accepts `auto`, `gpu`, or `cpu`
-- Windows setup installs CUDA-enabled PyTorch wheels, but the app still runs on CPU if CUDA is unavailable
-- Linux CUDA OCR is optional; first verify CPU setup, then install a CUDA-enabled PyTorch wheel into `.venv` if you want to test NVIDIA acceleration
-- macOS runs CPU OCR; Apple Metal/MPS acceleration is not wired into this project
-- `--check` prints PyTorch version/build, CUDA availability, CUDA device name, OpenCV CUDA/OpenCL state, and the selected extract/OCR backend reasons
-- benchmark-only variables such as `MK8_CUDA_OCR_WORKERS` and `MK8_DISABLE_EASYOCR_READER_LOCK` should stay unset unless you are comparing outputs against a known-good baseline
+- setup scans hardware and chooses CUDA PyTorch only when NVIDIA hardware is detected, unless you force another setup mode
+- AMD ROCm on Linux and Apple MPS on macOS are experimental opt-in paths, not official support claims
+- `--check` prints PyTorch version/build, CUDA availability, HIP/ROCm availability, MPS availability, device name, OpenCV CUDA/OpenCL state, and the selected extract/OCR backend reasons
+- benchmark-only variables such as `MK8_GPU_OCR_WORKERS` and `MK8_DISABLE_EASYOCR_READER_LOCK` should stay unset unless you are comparing outputs against a known-good baseline. `MK8_CUDA_OCR_WORKERS` remains accepted as a compatibility alias.
 
 Console output during a run now uses a clearer live format:
 - each video gets a stable neon accent color for the whole run
@@ -710,7 +746,7 @@ The window guides you through the run order top to bottom:
   - `Open Latest Excel` opens the most recent exported workbook
   - `Open Frames` opens the extracted race screenshots
 - `Settings & cleanup`
-  - `Extraction` / `EasyOCR` GPU mode (AUTO / GPU / CPU), saved between sessions
+  - `Extraction` / `EasyOCR` mode (AUTO / GPU / CPU), saved between sessions. EasyOCR GPU means PyTorch CUDA/ROCm, with MPS only when explicitly forced for testing.
   - `Delete frames` / `Clear output` for a fresh rerun
 
 GUI requirements:

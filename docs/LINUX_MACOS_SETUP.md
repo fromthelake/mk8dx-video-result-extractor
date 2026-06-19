@@ -8,11 +8,11 @@ GitHub:
 ## Platform Status
 
 - Linux: **UNKNOWN** in this stabilization pass. Setup is documented and should be verified on the target machine with `--check` and a scoped sample run.
-- macOS: **UNKNOWN** in this stabilization pass. CPU OCR is the expected path; CUDA is not available on Apple hardware.
+- macOS: **UNKNOWN** in this stabilization pass. CPU OCR is the default path; CUDA is not available on Apple hardware.
 - Windows 11 is the actively benchmarked and currently verified reference environment.
 - iOS is not supported. This project depends on desktop Python, FFmpeg, OpenCV, EasyOCR, and local filesystem access.
-- Linux GPU OCR can work when the local `.venv` has a CUDA-enabled PyTorch build installed for that machine.
-- Apple Metal/MPS acceleration is not currently wired into this project.
+- Linux NVIDIA GPU OCR is auto-selected when setup detects NVIDIA hardware.
+- Linux AMD ROCm and macOS MPS are experimental opt-in paths, not verified support claims.
 - After setup, always run `.venv/bin/mk8-local-play --check` and then a scoped sample run before trusting a new Linux/macOS environment.
 
 ## Important
@@ -138,9 +138,12 @@ This setup script:
 - creates or reuses the local `.venv` in this project folder
 - creates `config/app_config.json` from `config/app_config.example.json` if the local config is absent
 - uses `python3.12` by default and stops if the interpreter is not Python 3.12
+- checks that FFmpeg is available before downloading Python packages
+- scans local video-card hardware before choosing the PyTorch package set
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
-- uses a CPU-compatible PyTorch install unless you explicitly install a platform-specific GPU PyTorch wheel afterward
+- uses CUDA PyTorch automatically when NVIDIA hardware is detected on Linux
+- uses CPU PyTorch for macOS, Intel, AMD default setup, no-GPU setup, or unclear hardware
 - does not require a global install of this app
 - does not require adding `mk8-local-play` to PATH
 
@@ -155,7 +158,7 @@ If setup fails:
 
 ## CPU And GPU Choices
 
-The safe baseline on Linux and macOS is CPU OCR:
+Setup defaults to the fastest reliable package set it can identify. NVIDIA CUDA is the only plug-and-play GPU path this project currently recommends. CPU OCR remains the safe baseline on Linux and macOS:
 
 Terminal Command:
 --------------
@@ -167,14 +170,14 @@ Use CPU mode when:
 - the machine has no NVIDIA GPU
 - PyTorch reports a CPU-only build
 - you are setting up macOS
+- the machine has AMD or Intel graphics and you do not want to test experimental paths
 - you want the most portable behavior first
 
-Linux NVIDIA CUDA OCR is optional. To use it, install a CUDA-enabled PyTorch wheel inside the project `.venv` after the normal setup:
+Linux NVIDIA CUDA OCR is selected automatically when setup detects NVIDIA hardware. To force it manually:
 
 Terminal Command:
 --------------
-.venv/bin/python -m pip uninstall -y torch torchvision
-.venv/bin/python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.10.0+cu128 torchvision==0.25.0+cu128
+TORCH_MODE=cuda ./scripts/setup_unix.sh
 .venv/bin/mk8-local-play --check
 --------------
 
@@ -189,15 +192,58 @@ If `--check` still reports CPU:
 - rerun `.venv/bin/python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"`
 - leave `easyocr_gpu_mode` on `auto` or set `MK8_EASYOCR_GPU_MODE=gpu` only when you want a clear warning if CUDA is unavailable
 
-macOS GPU note:
+Experimental AMD ROCm note:
+- EasyOCR has no direct AMD/OpenCL equivalent to NVIDIA CUDA
+- AMD may work when PyTorch ROCm exposes the GPU through the `torch.cuda` API
+- this is Linux-only in the setup script and is not a verified support path
+- it may fail to install, fail `--check`, run slower than CPU, or produce driver errors
+
+Terminal Command:
+--------------
+TORCH_MODE=rocm-experimental ./scripts/setup_unix.sh
+.venv/bin/mk8-local-play --check
+--------------
+
+What you want to see before trusting ROCm:
+- `PyTorch HIP/ROCm build:` shows a version instead of `none`
+- `PyTorch CUDA available: True`
+- `EasyOCR mode: auto (ENABLED, backend=rocm, ...)`
+- a small `--selection --video <file-name>` sample produces sensible output
+
+If ROCm fails, rerun setup in CPU mode:
+
+Terminal Command:
+--------------
+TORCH_MODE=cpu ./scripts/setup_unix.sh
+--------------
+
+Experimental macOS MPS note:
 - CUDA is not available on Apple hardware
-- this project does not currently use Apple Metal/MPS for EasyOCR
-- run macOS as CPU OCR unless the code is explicitly changed in the future to support another backend
+- EasyOCR can attempt MPS through PyTorch on some Macs
+- this project has not verified or tuned MPS, so it is opt-in only
+
+Terminal Command:
+--------------
+TORCH_MODE=mps-experimental ./scripts/setup_unix.sh
+MK8_EASYOCR_GPU_MODE=gpu .venv/bin/mk8-local-play --check
+--------------
+
+What you want to see before trusting MPS:
+- `PyTorch MPS available: True`
+- `EasyOCR mode: gpu (ENABLED, backend=mps, ...)`
+- a small sample run produces sensible output
+
+If MPS fails, use CPU mode:
+
+Terminal Command:
+--------------
+TORCH_MODE=cpu ./scripts/setup_unix.sh
+--------------
 
 OpenCV/extraction GPU note:
 - the normal `opencv-python` package usually does not include OpenCV CUDA modules
 - extraction is allowed to run on CPU and is the default tuned path
-- CUDA PyTorch mainly accelerates EasyOCR, not every OpenCV image operation
+- CUDA/ROCm/MPS PyTorch mainly affects EasyOCR, not every OpenCV image operation
 
 ## Step 6. Run the environment check
 

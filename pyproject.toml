@@ -12,10 +12,10 @@ authors = [
   { name = "Project Maintainer" }
 ]
 dependencies = [
-  # PyTorch is handled outside this direct dependency list. Windows setup
-  # installs the official CUDA wheel explicitly; Linux/macOS environments may
-  # need their platform-specific PyTorch wheel. Keeping plain "torch" out of
-  # this list avoids pip selecting an unintended CPU-only wheel.
+  # PyTorch is handled outside this direct dependency list. Setup scripts scan
+  # local hardware and install the intended CPU/CUDA package set explicitly.
+  # Keeping plain "torch" out of this list avoids pip selecting an unintended
+  # wheel before that hardware-aware decision is made.
   "easyocr==1.7.2",
   "et_xmlfile==2.0.0",
   "jellyfish==1.1.3",
@@ -54,4 +54,3 @@ mk8dx_video_result_extractor = [
 mk8dx_video_result_extractor_data = [
   "reference_data/game_catalog.json",
 ]
-

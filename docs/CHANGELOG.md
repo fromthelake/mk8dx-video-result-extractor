@@ -7,12 +7,15 @@ The format is intentionally simple and human-readable.
 ## [Unreleased]
 
 ### Fixed
+- Made setup choose PyTorch packages from a hardware scan instead of assuming every Windows user should install CUDA wheels.
+- Improved runtime diagnostics so `--check` reports CUDA, HIP/ROCm, MPS, and the selected EasyOCR backend more clearly.
 - Reworked first-time setup documentation so Windows, Linux, and macOS users start from a clear quick guide with accurate clone folders, FFmpeg requirements, and GPU expectations.
 - Made Qt GUI cancellation safer on Linux/macOS by avoiding process-group termination when the child process was not started in a separate process group.
 - Normalized Unix shell scripts to LF and marked them executable in Git.
 - Made the legacy Tk video-merge file picker use cross-platform video file patterns.
 
 ### Added
+- Added a stdlib-only PyTorch setup selector used by the platform setup scripts, with CPU/CUDA defaults and explicit experimental ROCm/MPS modes.
 - Tracked `config/app_config.example.json` so fresh clones have documented runtime defaults without committing local machine config.
 - `scripts/clean_generated.ps1` for reproducible cleanup of ignored cache/temp artifacts.
 - Official local test wrappers:
