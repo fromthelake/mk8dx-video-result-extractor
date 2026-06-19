@@ -70,22 +70,22 @@ The project has two main phases:
 ## Runtime And Configuration
 
 - `mk8dx_video_result_extractor/app_runtime.py`
-  - loads `config/app_config.json`
+  - loads ignored local `config/app_config.json`, falling back to tracked `config/app_config.example.json`
   - checks runtime dependencies
   - detects OpenCV GPU/OpenCL availability
+- `config/app_config.example.json`
+  - tracked runtime config template used by fresh clones and setup
 - `config/app_config.json`
-  - tracked runtime config used by setup and local runs
+  - ignored local runtime config used for machine-specific overrides
 - `mk8dx_video_result_extractor/console_logging.py`
   - consistent operator-style logging and resource reporting
 
 ## Game Catalog
 
-- `database/firestore-export.json`
-  - local source export used to derive the compact catalog
 - `reference_data/game_catalog.json`
   - single source of truth for cups, tracks, and characters
 - `tools/build_game_catalog.py`
-  - rebuilds the compact catalog from the Firestore export
+  - optionally rebuilds the compact catalog from a private/local Firestore export not included in this repository
 - `mk8dx_video_result_extractor/game_catalog.py`
   - loader around the compact catalog
 - `mk8dx_video_result_extractor/track_metadata.py`

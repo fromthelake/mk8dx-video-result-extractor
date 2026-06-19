@@ -30,7 +30,7 @@ Belangrijk om nu expliciet vast te leggen:
   - eerst `transition`
   - daarna `transition + stable-hint`
 - die latere ronde is apart vastgelegd in:
-  - [TOTAL_SCORE_TRACE_FINDINGS_2026-04-03.md](/C:/Ai/MK8DX Video Result Extractor/docs/TOTAL_SCORE_TRACE_FINDINGS_2026-04-03.md)
+  - [TOTAL_SCORE_TRACE_FINDINGS_2026-04-03.md](./TOTAL_SCORE_TRACE_FINDINGS_2026-04-03.md)
 
 Dus:
 
@@ -102,13 +102,8 @@ De gebruikte parser/logica verzamelde:
 - resource peaks
 - bottleneckclassificatie
 
-Ruwe benchmarkartefacts zijn lokaal terug te vinden onder:
-
-- `.codex_tmp/remux_matrix_full/`
-- `.codex_tmp/remux_matrix_followup/`
-- `.codex_tmp/remux_matrix_confirm_2video/`
-- `.codex_tmp/remux_matrix_confirm_3video/`
-- `.codex_tmp/remux_matrix_confirm_3video_ab/`
+Ruwe benchmarkartefacts werden lokaal gegenereerd onder de genegeerde `.codex_tmp/` folder.
+Die artefacts zijn niet gecommit en zijn niet nodig om de applicatie te installeren of uit te voeren.
 
 ## Onderzoeksgeschiedenis Voor De Remux-Matrix
 
@@ -338,27 +333,12 @@ De runtime-defaults zijn nu bewust gezet op:
 - `pass1_scan_workers = 2`
 - `score_analysis_workers = 4`
 
-in [app_config.json](/C:/Ai/MK8DX Video Result Extractor/config/app_config.json).
+in [app_config.example.json](../config/app_config.example.json), with local overrides in ignored `config/app_config.json`.
 
 ## Relevante Rapporten
 
-Details van deze ronde staan ook in de gegenereerde benchmarkrapporten:
-
-- `.codex_tmp/remux_matrix_full/report.md`
-- `.codex_tmp/remux_matrix_full/summary.csv`
-- `.codex_tmp/remux_matrix_full/raw_runs.csv`
-- `.codex_tmp/remux_matrix_followup/report.md`
-- `.codex_tmp/remux_matrix_followup/summary.csv`
-- `.codex_tmp/remux_matrix_followup/raw_runs.csv`
-- `.codex_tmp/remux_matrix_confirm_2video/report.md`
-- `.codex_tmp/remux_matrix_confirm_2video/summary.csv`
-- `.codex_tmp/remux_matrix_confirm_2video/raw_runs.csv`
-- `.codex_tmp/remux_matrix_confirm_3video/report.md`
-- `.codex_tmp/remux_matrix_confirm_3video/summary.csv`
-- `.codex_tmp/remux_matrix_confirm_3video/raw_runs.csv`
-- `.codex_tmp/remux_matrix_confirm_3video_ab/report.md`
-- `.codex_tmp/remux_matrix_confirm_3video_ab/summary.csv`
-- `.codex_tmp/remux_matrix_confirm_3video_ab/raw_runs.csv`
+Details van deze ronde stonden in lokaal gegenereerde `.codex_tmp/` benchmarkrapporten.
+Die rapporten zijn runtime artefacts, niet projectbronnen.
 
 ## Gebruik Van Deze Notitie
 

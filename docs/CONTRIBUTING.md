@@ -53,8 +53,13 @@ Minimum checks:
 
 ```bash
 python -m compileall mk8dx_video_result_extractor
+python -m unittest discover
 python -m mk8dx_video_result_extractor.main --check
 ```
+
+From a repo-local virtual environment, prefer the wrapper scripts:
+- Windows: `.\scripts\run_tests.ps1`
+- Linux/macOS: `./scripts/run_tests.sh`
 
 Useful functional checks:
 

@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 
@@ -9,8 +10,14 @@ OUTPUT_PATHS = [
 ]
 
 
-def load_firestore_export() -> dict:
-    with SOURCE_PATH.open("r", encoding="utf-8") as handle:
+def load_firestore_export(source_path: Path) -> dict:
+    if not source_path.exists():
+        raise FileNotFoundError(
+            f"Missing optional Firestore export: {source_path}. "
+            "The committed reference_data/game_catalog.json is used at runtime; "
+            "pass --source to rebuild it from a private/local export."
+        )
+    with source_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -92,7 +99,14 @@ def write_catalog(catalog: dict) -> None:
 
 
 def main() -> None:
-    data = load_firestore_export()
+    parser = argparse.ArgumentParser(description="Rebuild the compact game catalog from a Firestore export.")
+    parser.add_argument("--source", type=Path, default=SOURCE_PATH, help="Path to firestore-export.json")
+    args = parser.parse_args()
+
+    try:
+        data = load_firestore_export(args.source)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
     catalog = build_catalog(data)
     write_catalog(catalog)
     print(f"Wrote game catalog to {OUTPUT_PATHS[0]}")

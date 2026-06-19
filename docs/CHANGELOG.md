@@ -7,6 +7,10 @@ The format is intentionally simple and human-readable.
 ## [Unreleased]
 
 ### Added
+- Tracked `config/app_config.example.json` so fresh clones have documented runtime defaults without committing local machine config.
+- Official local test wrappers:
+  - `scripts/run_tests.ps1`
+  - `scripts/run_tests.sh`
 - `pyproject.toml` for editable installs and console-script entrypoints
 - New primary entrypoints:
   - `main.py`
@@ -36,6 +40,9 @@ The format is intentionally simple and human-readable.
   - `Output_Results/Debug/Score_Frames/.gitkeep`
 
 ### Changed
+- Setup scripts now create ignored local `config/app_config.json` from `config/app_config.example.json` when needed.
+- Runtime config loading now falls back to `config/app_config.example.json` when the ignored local config is absent.
+- Documentation now distinguishes verified Windows behavior from unverified Linux/macOS setup guidance.
 - Headless OCR runs now support an experimental `--low_res` mode for explicitly selected videos, forcing only those race classes through the existing low-res/ultra-low-res identity pipeline without changing default run behavior (`--ultra_low_res` remains as a backward-compatible alias).
 - `Transition + stable-hint` is now the default TotalScore timing baseline. The second pass first lands in a small learned transition window, then probes early/late stable-total clusters before falling back to the old broad search path. This keeps the old safety net, but cut the reviewed top-30 benchmark from `01:03:19` to `00:37:54`.
 - Character family refinement now uses aligned alpha-cutout color scoring on saved `2RaceScore` anchor crops instead of the older unaligned diagnostic HSV scorer in production. It covers catalog-backed `Birdo`, `Yoshi`, `Shy Guy`, and `Inkling` families, plus explicit close-cutout groups for `Peach` / `Pink Gold Peach` and `Mario` / `Metal Mario` / `Gold Mario`.
@@ -102,7 +109,7 @@ The format is intentionally simple and human-readable.
 - Internal extraction naming now prefers descriptive terms like `initial scan` instead of vague phase labels.
 - OCR output writes timestamped workbooks to `Output_Results/`
 - OCR output now also writes a timestamped `*_Final_Standings.csv` alongside the workbook and results CSV.
-- Track, cup, and character metadata now derive from a compact `reference_data/game_catalog.json` built from `database/firestore-export.json`.
+- Track, cup, and character metadata now derive from a compact `reference_data/game_catalog.json`; rebuilding it requires an optional private/local Firestore export.
 - User workbooks now include `Character` and `Position After Race`.
 - Debug workbooks now include explicit session rebase/reset flags, RaceScore recovery fields, identity labels, and character match details.
 - Workbook output now keeps only timestamped files, with debug workbooks grouped under `Output_Results/Debug/`.

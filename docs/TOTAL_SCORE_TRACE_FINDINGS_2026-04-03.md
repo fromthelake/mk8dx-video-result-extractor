@@ -71,11 +71,8 @@ Resultaat van de brede meetrun:
 - `Used Total Fallback`: `5`
 - `Ignored Candidate`: `0`
 
-Artefacts:
-
-- selectie: `.codex_tmp/top30_total_score_trace_videos.txt`
-- rapport: `.codex_tmp/total_score_trace_analysis.md`
-- csv-samenvatting: `.codex_tmp/total_score_trace_analysis.csv`
+Artefacts werden lokaal gegenereerd onder de genegeerde `.codex_tmp/` folder.
+Ze zijn niet gecommit en zijn niet nodig voor een fresh-clone setup.
 
 ## Belangrijkste bevindingen
 
@@ -237,9 +234,7 @@ Hashes:
 - `Tournament_Results.csv`: gelijk
 - `Final_Standings.csv`: gelijk
 
-Rapport:
-
-- `.codex_tmp/fast_path_benchmark_2video.md`
+Het gedetailleerde rapport was een lokaal `.codex_tmp/` artefact en is niet gecommit.
 
 ### 3-video praktijkset
 
@@ -265,9 +260,7 @@ Hashes:
 - `Tournament_Results.csv`: gelijk
 - `Final_Standings.csv`: gelijk
 
-Rapport:
-
-- `.codex_tmp/fast_path_benchmark_3video.md`
+Het gedetailleerde rapport was een lokaal `.codex_tmp/` artefact en is niet gecommit.
 
 ### 60 fps validatie
 
@@ -289,18 +282,13 @@ Hashes:
 - `Tournament_Results.csv`: gelijk
 - `Final_Standings.csv`: gelijk
 
-Rapport:
-
-- `.codex_tmp/fast_path_benchmark_60fps.md`
+Het gedetailleerde rapport was een lokaal `.codex_tmp/` artefact en is niet gecommit.
 
 ## Brede acceptatietest op top-30 langste video's
 
 Na de gerichte validaties is ook een brede acceptatietest gedaan op de `30` langste video's uit `Input_Videos/` en subfolders.
 
-Rapport:
-
-- `.codex_tmp/fast_path_benchmark_top30.md`
-- `.codex_tmp/fast_path_transition_only_top30.md`
+De gedetailleerde rapporten waren lokale `.codex_tmp/` artefacts en zijn niet gecommit.
 
 ### Resultaat van de eerste brede test
 

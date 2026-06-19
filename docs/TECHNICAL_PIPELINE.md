@@ -48,8 +48,8 @@ The extraction and OCR pipeline use a fixed working image size:
 - height: `720`
 
 Source of truth:
-- [extract_common.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_common.py)
-- [ocr_common.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_common.py)
+- [extract_common.py](../mk8dx_video_result_extractor/extract_common.py)
+- [ocr_common.py](../mk8dx_video_result_extractor/ocr_common.py)
 
 The active gameplay region is detected by scanning for non-black borders, then cropped and upscaled onto this fixed canvas.
 
@@ -72,10 +72,10 @@ Initial detection templates live in:
 - `assets/templates/ignore_2.png`
 
 They are loaded in:
-- [extract_frames.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_frames.py)
+- [extract_frames.py](../mk8dx_video_result_extractor/extract_frames.py)
 
 The initial scan target definitions live in:
-- [extract_initial_scan.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_initial_scan.py)
+- [extract_initial_scan.py](../mk8dx_video_result_extractor/extract_initial_scan.py)
 
 Current initial-scan ROIs on the normalized `1280x720` image:
 
@@ -128,7 +128,7 @@ Current score-screen detection behavior:
 Corrupt preflight now uses sampled OpenCV reads instead of a full `ffprobe -count_frames` walk.
 
 Implementation:
-- [extract_video_io.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_video_io.py)
+- [extract_video_io.py](../mk8dx_video_result_extractor/extract_video_io.py)
 
 Current strategy:
 - `60` sampled frames per video
@@ -153,7 +153,7 @@ Console note:
 ## 5. Repair Pipeline
 
 Repair is handled in:
-- [extract_video_io.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_video_io.py)
+- [extract_video_io.py](../mk8dx_video_result_extractor/extract_video_io.py)
 
 Current behavior:
 - original is archived into `Input_Videos/corrupt/corrupt_<original-name>`
@@ -174,7 +174,7 @@ Repair progress is logged using ffmpeg progress output.
 The second pass uses fixed ROIs on the normalized `1280x720` score image.
 
 Defined in:
-- [extract_frames.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_frames.py)
+- [extract_frames.py](../mk8dx_video_result_extractor/extract_frames.py)
 
 Current constants:
 - LAN 2 scoreboard points ROI: `(290, 32, 102, 660)`
@@ -184,7 +184,7 @@ Current constants:
 - Dutch 12th-place validation ROI: `(306, 658, 670, 41)`
 
 These are used by:
-- [extract_score_screen_selection.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_score_screen_selection.py)
+- [extract_score_screen_selection.py](../mk8dx_video_result_extractor/extract_score_screen_selection.py)
 
 Current RaceScore selection behavior:
 - the first score-screen hit still seeds a provisional RaceScore export time
@@ -215,8 +215,8 @@ Current TotalScore selection behavior:
 ## 7. OCR Regions
 
 Main OCR logic lives in:
-- [extract_text.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_text.py)
-- [ocr_scoreboard_consensus.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
+- [extract_text.py](../mk8dx_video_result_extractor/extract_text.py)
+- [ocr_scoreboard_consensus.py](../mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
 
 Current OCR runtime notes:
 - EasyOCR now defaults to `auto` mode through `config/app_config.json:easyocr_gpu_mode` or the GUI
@@ -237,7 +237,7 @@ Important OCR geometry on the normalized `1280x720` frame:
 
 ### Player-name rows
 Defined in:
-- [ocr_scoreboard_consensus.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
+- [ocr_scoreboard_consensus.py](../mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
 
 Current player name row boxes:
 - LAN 2 x-range roughly `428..620`
@@ -246,7 +246,7 @@ Current player name row boxes:
 
 ### Position strip
 Defined in:
-- [ocr_scoreboard_consensus.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
+- [ocr_scoreboard_consensus.py](../mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
 
 Current base ROI:
 - LAN 2: `((315, 57), (367, 667))`
@@ -283,8 +283,8 @@ Current row-count gating notes:
 
 ### Character icons
 Defined in:
-- [ocr_scoreboard_consensus.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
-- [low_res_identity.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/low_res_identity.py)
+- [ocr_scoreboard_consensus.py](../mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
+- [low_res_identity.py](../mk8dx_video_result_extractor/low_res_identity.py)
 
 Current character icon settings:
 - LAN 2 left edge: `377`
@@ -317,7 +317,7 @@ Current score digit origins:
 
 ### Track name OCR
 Defined in:
-- [extract_text.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_text.py)
+- [extract_text.py](../mk8dx_video_result_extractor/extract_text.py)
 
 Current track-name OCR ROI:
 - `((319, 633), (925, 685))`
@@ -328,7 +328,7 @@ The runtime metadata source is:
 - `reference_data/game_catalog.json`
 
 Loaded by:
-- [game_catalog.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/game_catalog.py)
+- [game_catalog.py](../mk8dx_video_result_extractor/game_catalog.py)
 
 The catalog currently contains:
 - cups
@@ -342,11 +342,12 @@ The compact catalog is derived from a larger local source export mentioned elsew
 ## 9. Main Config Inputs
 
 Runtime config comes from:
-- `config/app_config.json`
-- `config/app_config.json`
+- ignored local `config/app_config.json`
+- tracked fallback `config/app_config.example.json`
+- `MK8_*` environment variables for scoped overrides
 
 Loaded by:
-- [app_runtime.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/app_runtime.py)
+- [app_runtime.py](../mk8dx_video_result_extractor/app_runtime.py)
 
 Important settings include:
 - extraction GPU mode
@@ -388,7 +389,7 @@ Current GPU-related settings:
 The application now supports clearing generated output safely without leaving the runtime in a broken state.
 
 Implemented in:
-- [main.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/main.py)
+- [main.py](../mk8dx_video_result_extractor/main.py)
 
 Available entrypoints:
 - CLI: `python -m mk8dx_video_result_extractor.main --clear-output-results`
@@ -559,13 +560,13 @@ When changing OCR process flow, preserve these rules unless a benchmark on repre
 ## 11. Files To Read First
 
 If you want to continue development, start here:
-- [main.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/main.py)
-- [extract_frames.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_frames.py)
-- [extract_initial_scan.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_initial_scan.py)
-- [extract_score_screen_selection.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_score_screen_selection.py)
-- [extract_text.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/extract_text.py)
-- [ocr_scoreboard_consensus.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
-- [game_catalog.py](/C:/Ai/MK8DX Video Result Extractor/mk8dx_video_result_extractor/game_catalog.py)
+- [main.py](../mk8dx_video_result_extractor/main.py)
+- [extract_frames.py](../mk8dx_video_result_extractor/extract_frames.py)
+- [extract_initial_scan.py](../mk8dx_video_result_extractor/extract_initial_scan.py)
+- [extract_score_screen_selection.py](../mk8dx_video_result_extractor/extract_score_screen_selection.py)
+- [extract_text.py](../mk8dx_video_result_extractor/extract_text.py)
+- [ocr_scoreboard_consensus.py](../mk8dx_video_result_extractor/ocr_scoreboard_consensus.py)
+- [game_catalog.py](../mk8dx_video_result_extractor/game_catalog.py)
 
 ## 12. Maintenance Note
 

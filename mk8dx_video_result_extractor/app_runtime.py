@@ -128,7 +128,10 @@ def update_app_config_values(overrides: dict, base_dir: Optional[Path] = None) -
 def load_app_config(base_dir: Optional[Path] = None) -> AppConfig:
     base_dir = Path(base_dir or PROJECT_ROOT)
     config_path = base_dir / "config" / "app_config.json"
-    json_config = _load_json_config(config_path)
+    if config_path.exists():
+        json_config = _load_json_config(config_path)
+    else:
+        json_config = _load_json_config(base_dir / "config" / "app_config.example.json")
 
     cpu_count = os.cpu_count() or 1
     default_ocr_workers = max(1, min(16, cpu_count))

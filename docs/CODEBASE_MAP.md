@@ -66,7 +66,7 @@ Runtime baseline:
 ### Metadata and runtime support
 
 - `mk8dx_video_result_extractor/app_runtime.py`
-  Loads `config/app_config.json`, persists simple runtime settings, checks FFmpeg, and reports GPU/OpenCL runtime status.
+  Loads ignored local `config/app_config.json`, falls back to tracked `config/app_config.example.json`, persists simple runtime settings, checks FFmpeg, and reports GPU/OpenCL runtime status.
 - `mk8dx_video_result_extractor/game_catalog.py`
   Loads the compact game catalog used for cups, tracks, and characters.
 - `mk8dx_video_result_extractor/track_metadata.py`
@@ -82,8 +82,10 @@ Runtime baseline:
 
 - `Input_Videos/`
   Source videos. The app can process the root only or recurse with `--subfolders`.
+- `config/app_config.example.json`
+  Tracked template for worker counts, export image format, EasyOCR GPU/overlap modes, consensus frames, debug-output toggles, and low-res thresholds.
 - `config/app_config.json`
-  Runtime settings for worker counts, export image format, EasyOCR GPU/overlap modes, consensus frames, debug-output toggles, and low-res thresholds.
+  Ignored local runtime config created by setup or GUI settings.
 - `reference_data/game_catalog.json`
   Runtime metadata source for tracks, cups, and characters.
 - `assets/templates/`
@@ -105,6 +107,8 @@ Runtime baseline:
 
 - `scripts/setup_windows.ps1`, `scripts/setup_unix.sh`
   Supported setup paths.
+- `scripts/run_tests.ps1`, `scripts/run_tests.sh`
+  Official local compile/test wrappers.
 - `scripts/quick_benchmark.*`, `scripts/release_benchmark.*`
   Benchmark helpers.
 - `tools/validate_outputs.py`
@@ -127,6 +131,7 @@ Runtime baseline:
 Baseline verification:
 
 ```powershell
+.\scripts\run_tests.ps1
 .\.venv\Scripts\python.exe -m compileall mk8dx_video_result_extractor
 .\.venv\Scripts\python.exe -m mk8dx_video_result_extractor.main --check
 ```
