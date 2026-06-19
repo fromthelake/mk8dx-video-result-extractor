@@ -83,6 +83,14 @@ Normal runtime data belongs in:
 
 Curated benchmark or regression material should be stored outside this runtime-focused repository.
 
+Generated cache/temp cleanup:
+
+```powershell
+.\scripts\clean_generated.ps1
+```
+
+This removes Python cache folders and ignored temp benchmark folders such as `.codex_tmp/` and `.ab_runs/`. It does not remove `Input_Videos/`, `Output_Results/`, `.venv/`, or local config.
+
 ## Performance Work
 
 When changing performance-sensitive code:

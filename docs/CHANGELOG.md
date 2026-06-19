@@ -8,6 +8,7 @@ The format is intentionally simple and human-readable.
 
 ### Added
 - Tracked `config/app_config.example.json` so fresh clones have documented runtime defaults without committing local machine config.
+- `scripts/clean_generated.ps1` for reproducible cleanup of ignored cache/temp artifacts.
 - Official local test wrappers:
   - `scripts/run_tests.ps1`
   - `scripts/run_tests.sh`
