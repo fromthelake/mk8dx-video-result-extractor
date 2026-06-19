@@ -10,7 +10,7 @@ def _config(workers: int = 16):
 
 
 class OcrWorkerPolicyTests(unittest.TestCase):
-    def test_easyocr_cuda_uses_two_worker_default(self):
+    def test_easyocr_gpu_uses_two_worker_default(self):
         with patch.dict("os.environ", {}, clear=True):
             policy = current_ocr_worker_policy(
                 _config(16),
@@ -20,9 +20,9 @@ class OcrWorkerPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy["configured_workers"], 16)
         self.assertEqual(policy["effective_workers"], 2)
-        self.assertEqual(policy["reason"], "easyocr_cuda_two_worker_default")
+        self.assertEqual(policy["reason"], "easyocr_gpu_two_worker_default")
 
-    def test_easyocr_cuda_default_respects_low_configured_worker_count(self):
+    def test_easyocr_gpu_default_respects_low_configured_worker_count(self):
         with patch.dict("os.environ", {}, clear=True):
             policy = current_ocr_worker_policy(
                 _config(1),
@@ -32,10 +32,10 @@ class OcrWorkerPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy["configured_workers"], 1)
         self.assertEqual(policy["effective_workers"], 1)
-        self.assertEqual(policy["reason"], "easyocr_cuda_two_worker_default")
+        self.assertEqual(policy["reason"], "easyocr_gpu_two_worker_default")
 
-    def test_easyocr_cuda_worker_override_is_experimental(self):
-        with patch.dict("os.environ", {"MK8_CUDA_OCR_WORKERS": "4"}, clear=False):
+    def test_easyocr_gpu_worker_override_is_experimental(self):
+        with patch.dict("os.environ", {"MK8_GPU_OCR_WORKERS": "4"}, clear=False):
             policy = current_ocr_worker_policy(
                 _config(16),
                 easyocr_gpu=True,
@@ -44,7 +44,18 @@ class OcrWorkerPolicyTests(unittest.TestCase):
 
         self.assertEqual(policy["configured_workers"], 16)
         self.assertEqual(policy["effective_workers"], 4)
-        self.assertEqual(policy["reason"], "easyocr_cuda_worker_override")
+        self.assertEqual(policy["reason"], "easyocr_gpu_worker_override")
+
+    def test_easyocr_cuda_worker_override_remains_compatible_alias(self):
+        with patch.dict("os.environ", {"MK8_CUDA_OCR_WORKERS": "3"}, clear=False):
+            policy = current_ocr_worker_policy(
+                _config(16),
+                easyocr_gpu=True,
+                character_shortlist_acceleration=True,
+            )
+
+        self.assertEqual(policy["effective_workers"], 3)
+        self.assertEqual(policy["reason"], "easyocr_gpu_worker_override")
 
     def test_cpu_with_character_prior_replay_uses_configured_workers(self):
         policy = current_ocr_worker_policy(

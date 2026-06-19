@@ -12,6 +12,223 @@ In practice it:
 - rebuilds tournament progress race by race
 - exports the results into structured workbook files for review and sharing
 
+## Start Here
+
+Use this section if you only want to install the project and run it.
+Detailed platform notes and technical references are linked later.
+
+### Platform Status
+
+| Platform | Status | Notes |
+| --- | --- | --- |
+| Windows 11 | **PASS** | Verified on the maintainer machine with setup, `--check`, tests, and fresh-clone simulation. |
+| Linux / WSL | **UNKNOWN** | Scripts and docs are prepared, but this pass was not executed on Linux. Verify with `--check` and a small sample run. |
+| macOS | **UNKNOWN** | Scripts and docs are prepared, but this pass was not executed on macOS. CPU OCR is expected. |
+| iOS / iPadOS / Android | **NOT SUPPORTED** | This is a desktop Python application. |
+
+### What You Need
+
+Install these system tools first:
+
+- Git
+- Python 3.12 exactly
+- FFmpeg
+- internet access during setup, because Python dependencies are downloaded
+
+The app itself is installed only into the local `.venv` folder inside this project.
+Do not install `mk8-local-play` globally and do not add it to your system PATH.
+Setup scans your hardware and chooses a PyTorch package set before installing OCR dependencies. NVIDIA CUDA systems get the fast GPU path automatically; AMD, Intel, macOS, and no-GPU systems use the reliable CPU path unless you opt into an experimental mode.
+
+### Windows Quick Install
+
+Open PowerShell in the folder where you want the project to live, then run:
+
+```powershell
+git --version
+py -3.12 --version
+ffmpeg -version
+git clone https://github.com/fromthelake/mk8dx-video-result-extractor.git
+cd mk8dx-video-result-extractor
+.\scripts\setup_windows.ps1
+.\.venv\Scripts\mk8-local-play.exe --check
+```
+
+If PowerShell blocks the setup script, run this once in the same PowerShell window and then retry setup:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\setup_windows.ps1
+```
+
+Start the GUI:
+
+```powershell
+.\.venv\Scripts\mk8-local-play.exe
+```
+
+### Linux Quick Install
+
+On Debian/Ubuntu-style systems, install system tools first:
+
+```bash
+sudo apt-get update
+sudo apt-get install git python3.12 python3.12-venv python3-pip ffmpeg
+```
+
+Then install the project:
+
+```bash
+git clone https://github.com/fromthelake/mk8dx-video-result-extractor.git
+cd mk8dx-video-result-extractor
+./scripts/setup_unix.sh
+.venv/bin/mk8-local-play --check
+```
+
+Start the GUI:
+
+```bash
+.venv/bin/mk8-local-play
+```
+
+If your Linux distribution does not package `python3.12`, install Python 3.12 using that distribution's recommended method, then rerun setup with:
+
+```bash
+PYTHON_BIN=/path/to/python3.12 ./scripts/setup_unix.sh
+```
+
+### macOS Quick Install
+
+If you use Homebrew, install system tools first:
+
+```bash
+brew install git python@3.12 ffmpeg
+```
+
+Then install the project:
+
+```bash
+git clone https://github.com/fromthelake/mk8dx-video-result-extractor.git
+cd mk8dx-video-result-extractor
+./scripts/setup_unix.sh
+.venv/bin/mk8-local-play --check
+```
+
+Start the GUI:
+
+```bash
+.venv/bin/mk8-local-play
+```
+
+If `python3.12` is not found after `brew install python@3.12`, rerun setup with the full Python path printed by Homebrew:
+
+```bash
+PYTHON_BIN=/path/to/python3.12 ./scripts/setup_unix.sh
+```
+
+### First Run
+
+1. Put tournament recordings in `Input_Videos/`.
+2. Start the GUI.
+3. Use **Open Input_Videos** if you need to find the folder.
+4. Select the videos you want to process.
+5. Click **FULL RUN**.
+6. Open the newest workbook from `Output_Results/`.
+
+Command-line first test:
+
+Windows:
+
+```powershell
+.\.venv\Scripts\mk8-local-play.exe --selection --video Demo_CaptureCard_Race.mp4
+```
+
+Linux/macOS:
+
+```bash
+.venv/bin/mk8-local-play --selection --video Demo_CaptureCard_Race.mp4
+```
+
+Use `--selection --video <file-name>` for a small first test. Use `--all` only when you are ready to process everything in `Input_Videos/`.
+
+### Video Card Guidance
+
+- No GPU: supported. OCR will usually be slower, but this is a normal supported path.
+- NVIDIA GPU on Windows/Linux: setup auto-selects CUDA PyTorch when NVIDIA hardware is detected. This is the recommended fast path.
+- AMD GPU: EasyOCR has no direct AMD/OpenCL equivalent to NVIDIA CUDA. AMD may work through PyTorch ROCm on compatible systems, but this project treats ROCm as experimental and opt-in.
+- Intel GPU: no verified EasyOCR GPU path here. Setup uses CPU PyTorch.
+- macOS: setup uses CPU PyTorch by default. EasyOCR can attempt PyTorch MPS on some Macs, but this project treats MPS as experimental and opt-in.
+- If a GPU package is installed but PyTorch cannot use it, the app falls back to CPU and explains why in `--check`.
+
+Manual setup overrides:
+
+Windows:
+
+```powershell
+.\scripts\setup_windows.ps1 -TorchMode Cpu
+.\scripts\setup_windows.ps1 -TorchMode Cuda
+```
+
+Linux/macOS:
+
+```bash
+TORCH_MODE=cpu ./scripts/setup_unix.sh
+TORCH_MODE=cuda ./scripts/setup_unix.sh
+```
+
+Experimental, no-guarantee paths:
+
+```bash
+# Linux AMD ROCm only. Requires a ROCm-compatible AMD GPU, driver, and PyTorch wheel support.
+TORCH_MODE=rocm-experimental ./scripts/setup_unix.sh
+
+# macOS MPS test only. Runtime GPU use still requires MK8_EASYOCR_GPU_MODE=gpu.
+TORCH_MODE=mps-experimental ./scripts/setup_unix.sh
+MK8_EASYOCR_GPU_MODE=gpu .venv/bin/mk8-local-play --check
+```
+
+Windows AMD ROCm is not automated by this setup script. AMD/PyTorch support on Windows is card, driver, Python, and PyTorch-version specific; use CPU mode unless you are comfortable following current AMD/PyTorch instructions manually inside this project `.venv`, then verify with `--check` and a small sample run.
+
+If an experimental path fails setup, fails `--check`, runs slower, or gives driver errors, rerun setup in CPU mode and use the CPU path.
+
+### If Setup Or Check Fails
+
+Run the system checks again:
+
+Windows:
+
+```powershell
+git --version
+py -3.12 --version
+ffmpeg -version
+.\.venv\Scripts\mk8-local-play.exe --check
+```
+
+Linux/macOS:
+
+```bash
+git --version
+python3.12 --version
+ffmpeg -version
+.venv/bin/mk8-local-play --check
+```
+
+Common fixes:
+
+- Python is not 3.12: install Python 3.12, delete `.venv`, and rerun setup.
+- FFmpeg is missing on Windows: try `winget install Gyan.FFmpeg`, open a new PowerShell window, then rerun setup or `--check`.
+- FFmpeg is missing on Linux/macOS: install FFmpeg with your package manager, then rerun setup or `--check`.
+- PySide6/Qt GUI does not open: run the command-line mode first, or try `--classic-gui`.
+- CUDA is unavailable: keep the default CPU-safe settings unless you are intentionally configuring NVIDIA CUDA.
+- Results look wrong: run one video with `--selection --video <file-name>` and review the workbook notes.
+
+More detail:
+
+- Linux/macOS setup: [docs/LINUX_MACOS_SETUP.md](./docs/LINUX_MACOS_SETUP.md)
+- Project structure: [docs/PROJECT_STRUCTURE.md](./docs/PROJECT_STRUCTURE.md)
+- Technical pipeline: [docs/TECHNICAL_PIPELINE.md](./docs/TECHNICAL_PIPELINE.md)
+- Scan/debug tools: [docs/SCAN_DEBUG_TOOLS.md](./docs/SCAN_DEBUG_TOOLS.md)
+- Changelog: [docs/CHANGELOG.md](./docs/CHANGELOG.md)
+
 ## Maintainer Note
 
 I am not a professional software developer. I built this project as a hobby for the Mario Kart tournament community.
@@ -28,24 +245,12 @@ The next major feature direction is **Time Trials** support:
 
 If this interests you, please open an issue or PR and reference "Time Trials Export Pipeline".
 
-## Quick Start
+## Detailed Guides
 
-For first-time setup on Windows, follow the steps in this README from **Step 1** onward.
-
-Linux/macOS setup:
-- [docs/LINUX_MACOS_SETUP.md](./docs/LINUX_MACOS_SETUP.md)
-
-Platform status:
-- Windows 11: **PASS** for the current maintainer environment; `--check`, unit tests, and the demo asset path were verified there.
-- Linux/WSL: **UNKNOWN** in this stabilization pass. Setup is documented and CPU-first, but it must be verified on the target machine with `--check` and a scoped sample run.
-- macOS: **UNKNOWN** in this stabilization pass. CPU OCR is the expected path; CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
-- iOS is not a supported target. This is a desktop Python/FFmpeg/OpenCV/EasyOCR application, not a mobile app.
-
-Scan/debug tooling reference:
-- [docs/SCAN_DEBUG_TOOLS.md](./docs/SCAN_DEBUG_TOOLS.md)
-
-GitHub:
-- https://github.com/fromthelake/mk8dx-video-result-extractor
+- Windows setup: continue with **Windows Setup** below.
+- Linux/macOS setup: [docs/LINUX_MACOS_SETUP.md](./docs/LINUX_MACOS_SETUP.md)
+- Scan/debug tooling reference: [docs/SCAN_DEBUG_TOOLS.md](./docs/SCAN_DEBUG_TOOLS.md)
+- GitHub: https://github.com/fromthelake/mk8dx-video-result-extractor
 
 ## License And Usage
 
@@ -200,7 +405,7 @@ Then open PowerShell there:
 - click `Open PowerShell window here` or `Open in Terminal`
 
 Important:
-- the `git clone` command in Step 4 will create a new folder named `MK8DX Video Result Extractor` inside the folder you opened
+- the `git clone` command in Step 5 will create a new folder named `mk8dx-video-result-extractor` inside the folder you opened
 
 ## Step 2. Check Git
 
@@ -259,17 +464,43 @@ Important:
 - the Mario Kart tool itself is still installed only inside this project folder's local `.venv`
 - you do not need a global install of `mk8-local-play`
 
-## Step 4. Download the project
+## Step 4. Check FFmpeg
 
 Run:
 
 PowerShell Command:
 --------------
-git clone https://github.com/fromthelake/mk8dx-video-result-extractor
-cd "MK8DX Video Result Extractor"
+ffmpeg -version
 --------------
 
-## Step 5. Run setup
+If it works:
+- continue to Step 5
+
+If it fails:
+- if `winget` is available, try:
+
+PowerShell Command:
+--------------
+winget install Gyan.FFmpeg
+--------------
+
+- otherwise install FFmpeg with your preferred Windows package manager or from the official FFmpeg download page
+- open a new PowerShell window
+- run `ffmpeg -version` again
+
+Setup runs `--check`, and `--check` currently requires FFmpeg.
+
+## Step 5. Download the project
+
+Run:
+
+PowerShell Command:
+--------------
+git clone https://github.com/fromthelake/mk8dx-video-result-extractor.git
+cd mk8dx-video-result-extractor
+--------------
+
+## Step 6. Run setup
 
 Run:
 
@@ -282,25 +513,29 @@ This setup script:
 - creates or reuses the local `.venv` in this project folder
 - creates `config/app_config.json` from `config/app_config.example.json` if the local config is absent
 - uses Python 3.12 specifically and stops if only a newer Python is installed
+- checks that FFmpeg is available before downloading Python packages
+- scans the local video card hardware before choosing the PyTorch package set
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
-- installs CUDA-enabled PyTorch wheels from the official PyTorch CUDA 12.8 wheel index:
-  - `torch==2.10.0+cu128`
-  - `torchvision==0.25.0+cu128`
-- keeps PyTorch out of the normal project dependency list on purpose, because a plain `torch` dependency can let pip install a CPU-only wheel
-- still falls back cleanly at runtime if CUDA is not available; `--check` reports the installed PyTorch build, CUDA availability, and selected OCR backend
+- installs CUDA PyTorch automatically when NVIDIA hardware is detected
+- installs CPU PyTorch when NVIDIA hardware is not detected
+- accepts manual overrides:
+  - `.\scripts\setup_windows.ps1 -TorchMode Cpu`
+  - `.\scripts\setup_windows.ps1 -TorchMode Cuda`
+- keeps PyTorch out of the normal project dependency list on purpose, because setup must choose the intended CPU/CUDA wheel before EasyOCR is installed
+- still falls back cleanly at runtime if GPU acceleration is not available; `--check` reports the installed PyTorch build, CUDA/ROCm/MPS availability, and selected OCR backend
 - does not require a global install of this app
 - does not require adding `mk8-local-play` to PATH
 
 If setup succeeds:
-- continue to Step 6
+- continue to Step 7
 
 If setup fails:
 - read the error shown in PowerShell
 - fix the missing dependency
 - run `.\scripts\setup_windows.ps1` again
 
-## Step 6. Run the environment check
+## Step 7. Run the environment check
 
 Run:
 
@@ -310,7 +545,7 @@ PowerShell Command:
 --------------
 
 If the check succeeds:
-- continue to Step 7
+- continue to Step 8
 
 If the check succeeds, the project is ready to run entirely from:
 - `.\.venv\Scripts\mk8-local-play.exe`
@@ -327,40 +562,15 @@ Headless debug toggle:
 - normal CLI runs can stay lean and skip debug workbook/image output
 - use `--debug` on `mk8-local-play.exe` or `python -m mk8dx_video_result_extractor.main` when you explicitly want debug CSV, debug workbook, and score-layout images for investigation
 
-Runtime GPU mode defaults:
+Runtime hardware defaults:
 - `config/app_config.example.json` defaults `execution_mode` to `cpu` and `easyocr_gpu_mode` to `auto`; local overrides live in ignored `config/app_config.json`
+- keep the defaults for your first successful run
 - `execution_mode` controls OpenCV extraction acceleration and accepts `auto`, `gpu`, or `cpu`
 - `easyocr_gpu_mode` controls EasyOCR and accepts `auto`, `gpu`, or `cpu`
-- extraction defaults to `cpu` because that is the fastest verified setting on this machine profile
-- in `auto`, extraction uses CUDA when available and otherwise falls back to CPU
-- OpenCL extraction remains available through explicit `GPU` mode, but is not chosen automatically
-- EasyOCR GPU mode requires a CUDA-enabled PyTorch install; on Windows `scripts/setup_windows.ps1` installs the CUDA 12.8 PyTorch wheels used by the reference environment instead of relying on pip's default CPU wheel selection
-- `--check` prints PyTorch version/build, CUDA availability, CUDA device name, OpenCV CUDA/OpenCL state, and the selected extract/OCR backend reasons
-- when EasyOCR is using GPU, effective OCR workers default to `2` with the per-reader EasyOCR lock still enabled; local scoped benchmarks showed this overlaps surrounding OCR/post-processing work without changing output
-- `MK8_CUDA_OCR_WORKERS=<n>` and `MK8_DISABLE_EASYOCR_READER_LOCK=1` remain benchmark-only CUDA OCR experiments; keep the default unless a scoped benchmark proves both faster runtime and identical output
-- when EasyOCR is forced to CPU, OCR can still use the configured worker count because character matching now runs in two passes: parallel raw OCR/evidence collection first, then deterministic character-prior replay in video/race/position order
-- `MK8_CHARACTER_PRIOR_REPLAY=0` disables that two-pass replay and falls back to the safer serial character-prior behavior for investigation
-- `overlap_ocr_mode` now defaults to `auto`
-- `overlap_ocr_consumers` now defaults to `2`
-- in overlap `auto`, multi-video full runs use the streamed per-race overlap path only when EasyOCR CUDA is available; otherwise runs stay on the existing sequential path
-- you can still override overlap mode to `video` or `race`, and raise `overlap_ocr_consumers` later for experiments
-- multi-video initial scan now defaults to `2` workers for multi-video runs
-- `MK8_PARALLEL_VIDEO_SCAN_WORKERS` can still override this manually
-- higher values such as `3` or `4` oversubscribed the machine in local testing and were slower than `2`
-
-Recommended performance profile on the current benchmark laptop:
-- `execution_mode=cpu`
-- `easyocr_gpu_mode=auto`
-- `overlap_ocr_mode=race`
-- `overlap_ocr_consumers=2`
-- `MK8_PARALLEL_VIDEO_SCAN_WORKERS=2`
-
-Additional extraction defaults now tuned from the full 7-video benchmark:
-- `pass1_scan_workers=4`
-- `score_analysis_workers=4`
-- `parallel_video_total_score_workers` resolves to `2` on `16+` logical CPU threads and `1` otherwise
-
-This combination is the current best verified throughput profile for the full local tournament benchmark set.
+- setup scans hardware and chooses CUDA PyTorch only when NVIDIA hardware is detected, unless you force another setup mode
+- AMD ROCm on Linux and Apple MPS on macOS are experimental opt-in paths, not official support claims
+- `--check` prints PyTorch version/build, CUDA availability, HIP/ROCm availability, MPS availability, device name, OpenCV CUDA/OpenCL state, and the selected extract/OCR backend reasons
+- benchmark-only variables such as `MK8_GPU_OCR_WORKERS` and `MK8_DISABLE_EASYOCR_READER_LOCK` should stay unset unless you are comparing outputs against a known-good baseline. `MK8_CUDA_OCR_WORKERS` remains accepted as a compatibility alias.
 
 Console output during a run now uses a clearer live format:
 - each video gets a stable neon accent color for the whole run
@@ -379,7 +589,7 @@ Placeholder identity handling is now tiered:
 - if that fails, a conservative forced-choice fallback can promote a strong top candidate
 - forced promotions are marked in the review trail with `placeholder_name_forced_choice`
 
-## Step 7. Run a first demo test
+## Step 8. Run a first demo test
 
 If you have `Demo_CaptureCard_Race.mp4` in `./Input_Videos/`, run:
 
@@ -393,9 +603,9 @@ Expected result:
 - extracted frame bundles in `./Output_Results/Frames/Demo_CaptureCard_Race/`
 
 If this works, your install and first end-to-end run are confirmed.
-Then continue to Step 8.
+Then continue to Step 9.
 
-## Step 8. Add your videos
+## Step 9. Add your videos
 
 Put your video files in folder:
 
@@ -405,7 +615,7 @@ Optional:
 - you can also place videos inside subfolders under `./Input_Videos/`
 - use `--subfolders` if you want headless runs to include those subfolders
 
-## Step 9. Run the tool
+## Step 10. Run the tool
 
 Process everything in `Input_Videos`:
 
@@ -536,7 +746,7 @@ The window guides you through the run order top to bottom:
   - `Open Latest Excel` opens the most recent exported workbook
   - `Open Frames` opens the extracted race screenshots
 - `Settings & cleanup`
-  - `Extraction` / `EasyOCR` GPU mode (AUTO / GPU / CPU), saved between sessions
+  - `Extraction` / `EasyOCR` mode (AUTO / GPU / CPU), saved between sessions. EasyOCR GPU means PyTorch CUDA/ROCm, with MPS only when explicitly forced for testing.
   - `Delete frames` / `Clear output` for a fresh rerun
 
 GUI requirements:
@@ -572,7 +782,6 @@ PowerShell Command:
 --------------
 
 What it changes:
-- extraction also includes supported `.mp4`, `.mkv`, `.mkv`, `.mov`, `.avi`, and `.webm` files found in subfolders under `Input_Videos`
 - extraction also includes supported `.mp4`, `.mkv`, `.mov`, `.avi`, and `.webm` files found in subfolders under `Input_Videos`
 - OCR/export still behaves like `--all`, so existing historical frame groups can still be included
 
@@ -694,4 +903,3 @@ Equivalent direct checks:
 
 Optional heavy validation requires an explicit external baseline directory:
 - `.\.venv\Scripts\python.exe tools\validate_outputs.py --baseline-dir <baseline-dir>`
-

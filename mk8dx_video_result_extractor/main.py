@@ -690,10 +690,11 @@ def merge_videos() -> None:
 
     ensure_runtime_or_raise(require_ffmpeg=True)
 
+    video_patterns = ("*.mp4", "*.mkv", "*.avi", "*.mov", "*.webm")
     file_paths = filedialog.askopenfilenames(
         title="Select Videos to Merge",
         initialdir=str(INPUT_DIR),
-        filetypes=[("Video Files", "*.mp4;*.mkv;*.avi")],
+        filetypes=[("Video Files", video_patterns), ("All Files", "*")],
     )
     if not file_paths:
         return
@@ -2088,13 +2089,18 @@ def run_profiled_all(
 
 
 def gui_runtime_available() -> tuple[bool, str]:
+    try:
+        from PySide6 import QtWidgets  # noqa: F401
+        return True, "PySide6/Qt GUI runtime available"
+    except Exception as qt_exc:
+        qt_reason = f"PySide6/Qt unavailable ({qt_exc})"
     if tk is None or messagebox is None or filedialog is None:
-        return False, "Tkinter is unavailable"
+        return False, f"{qt_reason}; Tkinter is unavailable"
     try:
         from PIL import ImageTk  # noqa: F401
     except Exception as exc:
-        return False, f"Pillow ImageTk is unavailable ({exc})"
-    return True, "GUI runtime available"
+        return False, f"{qt_reason}; Pillow ImageTk is unavailable ({exc})"
+    return True, f"{qt_reason}; legacy Tk GUI runtime available"
 
 
 def print_runtime_status() -> int:
@@ -2116,9 +2122,12 @@ def print_runtime_status() -> int:
     print(f"GUI detail: {gui_reason}")
     print(f"PyTorch version: {torch_runtime['version'] or 'MISSING'}")
     print(f"PyTorch CUDA build: {torch_runtime['cuda_build'] or 'none'}")
+    print(f"PyTorch HIP/ROCm build: {torch_runtime.get('hip_build') or 'none'}")
     print(f"PyTorch CUDA available: {torch_runtime['cuda_available']}")
+    print(f"PyTorch MPS available: {torch_runtime.get('mps_available', False)}")
+    print(f"PyTorch accelerator: {torch_runtime.get('accelerator', 'unknown')}")
     if torch_runtime["device_name"]:
-        print(f"PyTorch CUDA device: {torch_runtime['device_name']}")
+        print(f"PyTorch device: {torch_runtime['device_name']}")
     print(f"PyTorch detail: {torch_runtime['reason']}")
     print(
         f"GPU mode: {gpu_runtime['mode']} "
@@ -2129,7 +2138,7 @@ def print_runtime_status() -> int:
     print(
         f"EasyOCR mode: {easyocr_runtime['mode']} "
         f"({'ENABLED' if easyocr_runtime['enabled'] else 'DISABLED'}, backend={easyocr_runtime['backend']}, "
-        f"torch_cuda_devices={easyocr_runtime['device_count']})"
+        f"torch_devices={easyocr_runtime['device_count']})"
     )
     print(f"EasyOCR detail: {easyocr_runtime['reason']}")
     character_catalog = describe_character_catalog_runtime()
@@ -2724,7 +2733,7 @@ def launch_gui() -> int:
 
     settings_note = tk.Label(
         settings_body,
-        text="Subfolders affects all run buttons. Extraction is fastest on CPU here; OCR Auto uses CUDA when available.",
+        text="Subfolders affects all run buttons. Extraction is safest on CPU; OCR Auto uses CUDA/ROCm when PyTorch exposes it.",
         bg=GUI_THEME["panel_bg"],
         fg=GUI_THEME["muted_fg"],
         anchor="w",
@@ -2996,4 +3005,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

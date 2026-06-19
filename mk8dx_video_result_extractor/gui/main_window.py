@@ -257,9 +257,13 @@ class MainWindow(QWidget):
         modes_row.setSpacing(14)
         modes_row.addWidget(_hint("Extraction"))
         self._extract_mode = self._mode_combo(execution_mode)
+        self._extract_mode.setToolTip("OpenCV extraction stays CPU by default; GPU mode is experimental.")
         modes_row.addWidget(self._extract_mode)
         modes_row.addWidget(_hint("EasyOCR"))
         self._easyocr_mode = self._mode_combo(easyocr_mode)
+        self._easyocr_mode.setToolTip(
+            "AUTO uses NVIDIA CUDA, or opt-in ROCm if PyTorch exposes it. AMD/Intel/macOS default to CPU."
+        )
         modes_row.addWidget(self._easyocr_mode)
         modes_row.addStretch(1)
         layout.addLayout(modes_row)

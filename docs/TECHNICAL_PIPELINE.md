@@ -220,12 +220,13 @@ Main OCR logic lives in:
 
 Current OCR runtime notes:
 - EasyOCR now defaults to `auto` mode through `config/app_config.json:easyocr_gpu_mode` or the GUI
-- `auto` uses CUDA when PyTorch can see it and otherwise falls back to CPU
-- `gpu` requests CUDA explicitly and falls back to CPU with a clear runtime message if CUDA is unavailable
-- `cpu` disables GPU OCR even when CUDA is present
+- `auto` uses NVIDIA CUDA, or opt-in PyTorch ROCm when it exposes an AMD GPU through `torch.cuda`, and otherwise falls back to CPU
+- `auto` does not select macOS MPS; MPS is experimental and requires explicit `gpu` mode
+- `gpu` requests a PyTorch GPU backend explicitly and falls back to CPU with a clear runtime message if CUDA/ROCm/MPS is unavailable
+- `cpu` disables GPU OCR even when CUDA/ROCm/MPS is present
 - when GPU OCR is active, the pipeline defaults to `2` effective OCR workers while keeping the per-reader EasyOCR inference lock enabled
 - this is intentional; local benchmarks showed `2` workers can overlap surrounding OCR/post-processing work, while higher worker counts scale poorly
-- `MK8_CUDA_OCR_WORKERS=<n>` can temporarily override GPU OCR workers for benchmarking; it is experimental and should not be used as a release default without a correctness/performance comparison
+- `MK8_GPU_OCR_WORKERS=<n>` can temporarily override GPU OCR workers for benchmarking; it is experimental and should not be used as a release default without a correctness/performance comparison. `MK8_CUDA_OCR_WORKERS` remains accepted as a compatibility alias.
 - `MK8_DISABLE_EASYOCR_READER_LOCK=1` disables the per-reader EasyOCR inference lock for benchmarking only; this can expose concurrency drift and must be validated against character/Mii baselines before trusting results
 - when EasyOCR runs on CPU, the OCR phase can use the configured worker count because character recognition now has a two-pass path: parallel raw OCR/evidence collection first, followed by deterministic character-prior replay
 - `MK8_CHARACTER_PRIOR_REPLAY=1` is the default; set it to `0` only for investigation, which falls back to serial character-prior behavior
@@ -371,7 +372,10 @@ Current GPU-related settings:
   - default: `auto`
   - values: `auto`, `gpu`, `cpu`
   - controls EasyOCR name/track OCR GPU use
-  - requires a CUDA-enabled PyTorch build; `--check` reports the PyTorch version, CUDA build, device name, and fallback reason
+  - officially recommended GPU path is NVIDIA CUDA through PyTorch
+  - Linux AMD ROCm can be tested as an experimental setup path; EasyOCR has no native AMD/OpenCL backend
+  - macOS MPS can be tested only with explicit `gpu` mode and remains experimental
+  - `--check` reports the PyTorch version, CUDA build, HIP/ROCm build, MPS availability, device name, selected backend, and fallback reason
   - the OCR phase defaults to `2` effective OCR workers in GPU mode, because that was the best measured locked-reader configuration on the current test machine
 - `overlap_ocr_mode`
   - default: `auto`
@@ -571,4 +575,3 @@ If you want to continue development, start here:
 ## 12. Maintenance Note
 
 If you change any ROI, template, or working-canvas assumption, update this document at the same time.
-

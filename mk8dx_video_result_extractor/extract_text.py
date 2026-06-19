@@ -517,7 +517,11 @@ def current_ocr_workers() -> int:
 
 
 def cuda_ocr_worker_override() -> int | None:
-    raw_value = os.environ.get("MK8_CUDA_OCR_WORKERS", "").strip()
+    env_name = "MK8_GPU_OCR_WORKERS"
+    raw_value = os.environ.get(env_name, "").strip()
+    if not raw_value:
+        env_name = "MK8_CUDA_OCR_WORKERS"
+        raw_value = os.environ.get(env_name, "").strip()
     if not raw_value:
         return None
     try:
@@ -525,7 +529,7 @@ def cuda_ocr_worker_override() -> int | None:
     except ValueError:
         LOGGER.log(
             "[OCR - Settings]",
-            f"Ignoring invalid MK8_CUDA_OCR_WORKERS={raw_value!r}; expected a positive integer",
+            f"Ignoring invalid {env_name}={raw_value!r}; expected a positive integer",
             color_name="yellow",
         )
         return None
@@ -566,12 +570,12 @@ def current_ocr_worker_policy(
             return {
                 "configured_workers": configured_workers,
                 "effective_workers": cuda_worker_override,
-                "reason": "easyocr_cuda_worker_override",
+                "reason": "easyocr_gpu_worker_override",
             }
         return {
             "configured_workers": configured_workers,
             "effective_workers": min(configured_workers, 2),
-            "reason": "easyocr_cuda_two_worker_default",
+            "reason": "easyocr_gpu_two_worker_default",
         }
     if character_shortlist_acceleration and character_prior_replay:
         return {

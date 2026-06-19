@@ -331,39 +331,62 @@ def detect_torch_runtime() -> dict:
             "installed": False,
             "version": "",
             "cuda_build": "",
+            "hip_build": "",
             "cuda_available": False,
+            "mps_available": False,
             "device_count": 0,
             "device_name": "",
+            "accelerator": "none",
             "reason": f"PyTorch import failed: {exc}",
         }
 
     version = str(getattr(torch, "__version__", "") or "")
     cuda_build = str(getattr(getattr(torch, "version", None), "cuda", "") or "")
+    hip_build = str(getattr(getattr(torch, "version", None), "hip", "") or "")
     cuda_available = False
+    mps_available = False
     device_count = 0
     device_name = ""
     reason = "CUDA is not available to PyTorch"
+    accelerator = "cpu"
     try:
         cuda_available = bool(torch.cuda.is_available())
         device_count = int(torch.cuda.device_count()) if cuda_available else 0
         if cuda_available and device_count > 0:
             device_name = str(torch.cuda.get_device_name(0) or "")
-            reason = f"PyTorch CUDA device available: {device_name or 'device 0'}"
-        elif not cuda_build:
+            if hip_build:
+                accelerator = "rocm"
+                reason = f"PyTorch ROCm/HIP device available through torch.cuda: {device_name or 'device 0'}"
+            else:
+                accelerator = "cuda"
+                reason = f"PyTorch CUDA device available: {device_name or 'device 0'}"
+        elif not cuda_build and not hip_build:
             reason = "Installed PyTorch build is CPU-only"
     except Exception as exc:
         cuda_available = False
         device_count = 0
         device_name = ""
         reason = f"PyTorch CUDA probe failed: {exc}"
+    try:
+        mps_backend = getattr(getattr(torch, "backends", None), "mps", None)
+        if mps_backend is not None:
+            mps_available = bool(mps_backend.is_available())
+            if mps_available and not cuda_available:
+                accelerator = "mps"
+                reason = "PyTorch MPS device available; this project treats MPS as experimental"
+    except Exception:
+        mps_available = False
 
     return {
         "installed": True,
         "version": version,
         "cuda_build": cuda_build,
+        "hip_build": hip_build,
         "cuda_available": cuda_available,
+        "mps_available": mps_available,
         "device_count": device_count,
         "device_name": device_name,
+        "accelerator": accelerator,
         "reason": reason,
     }
 
@@ -377,17 +400,17 @@ def detect_gpu_runtime(config: AppConfig) -> dict:
         except Exception:
             cuda_devices = 0
     gpu_available = cuda_devices > 0
+    mode = _parse_mode(config.execution_mode, "cpu")
     opencl_available = False
     opencl_in_use = False
     try:
         opencl_available = bool(cv2.ocl.haveOpenCL())
-        if opencl_available:
+        if opencl_available and mode == "gpu" and not gpu_available:
             cv2.ocl.setUseOpenCL(True)
-            opencl_in_use = bool(cv2.ocl.useOpenCL())
+        opencl_in_use = bool(cv2.ocl.useOpenCL())
     except Exception:
         opencl_available = False
         opencl_in_use = False
-    mode = _parse_mode(config.execution_mode, "cpu")
     backend = "cpu"
     reason = "CPU mode selected" if mode == "cpu" else "No GPU backend available"
     if mode == "cpu":
@@ -425,7 +448,10 @@ def easyocr_gpu_enabled(config: AppConfig) -> bool:
     mode = _parse_mode(config.easyocr_gpu_mode, "auto")
     if mode == "cpu":
         return False
-    return bool(detect_torch_runtime()["cuda_available"])
+    torch_runtime = detect_torch_runtime()
+    if torch_runtime["cuda_available"]:
+        return True
+    return mode == "gpu" and bool(torch_runtime.get("mps_available"))
 
 
 def effective_overlap_ocr_mode(config: AppConfig) -> str:
@@ -439,30 +465,47 @@ def detect_easyocr_runtime(config: AppConfig) -> dict:
     mode = _parse_mode(config.easyocr_gpu_mode, "auto")
     torch_runtime = detect_torch_runtime()
     cuda_available = bool(torch_runtime["cuda_available"])
+    mps_available = bool(torch_runtime.get("mps_available"))
+    hip_build = str(torch_runtime.get("hip_build", "") or "")
     cuda_devices = int(torch_runtime["device_count"])
-    enabled = mode != "cpu" and cuda_available
+    enabled = mode != "cpu" and (cuda_available or (mode == "gpu" and mps_available))
+    backend = "cpu"
+    if enabled and cuda_available:
+        backend = "rocm" if hip_build else "cuda"
+    elif enabled and mps_available:
+        backend = "mps"
     if mode == "cpu":
         reason = "CPU mode selected"
     elif cuda_available:
         device_name = str(torch_runtime["device_name"] or "").strip()
-        reason = f"PyTorch CUDA device(s) available: {cuda_devices}"
+        if hip_build:
+            reason = f"PyTorch ROCm/HIP device(s) available through torch.cuda: {cuda_devices}"
+        else:
+            reason = f"PyTorch CUDA device(s) available: {cuda_devices}"
         if device_name:
             reason += f" ({device_name})"
+    elif mode == "gpu" and mps_available:
+        reason = "Experimental PyTorch MPS requested and available"
+    elif mps_available:
+        reason = "PyTorch MPS is available, but auto mode keeps MPS disabled because it is experimental here"
     elif mode == "gpu":
-        reason = f"Requested GPU mode, but CUDA was not available to EasyOCR: {torch_runtime['reason']}"
+        reason = f"Requested GPU mode, but CUDA/ROCm/MPS was not available to EasyOCR: {torch_runtime['reason']}"
     else:
-        reason = f"Auto mode selected, but CUDA was not available to EasyOCR: {torch_runtime['reason']}"
+        reason = f"Auto mode selected, but CUDA/ROCm was not available to EasyOCR: {torch_runtime['reason']}"
     return {
-        "available": cuda_available,
+        "available": cuda_available or mps_available,
         "enabled": enabled,
-        "device_count": cuda_devices,
+        "device_count": cuda_devices if cuda_available else (1 if mps_available else 0),
         "mode": mode,
-        "backend": "cuda" if enabled else "cpu",
+        "backend": backend,
         "reason": reason,
         "torch_version": torch_runtime["version"],
         "torch_cuda_build": torch_runtime["cuda_build"],
+        "torch_hip_build": hip_build,
         "torch_cuda_available": torch_runtime["cuda_available"],
+        "torch_mps_available": mps_available,
         "torch_device_name": torch_runtime["device_name"],
+        "torch_accelerator": torch_runtime.get("accelerator", "cpu"),
     }
 
 
