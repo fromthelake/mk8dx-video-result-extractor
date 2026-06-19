@@ -38,7 +38,7 @@ Examples:
 - `~/Documents`
 
 Important:
-- the `git clone` command in Step 5 will create a new folder named `MK8DX Video Result Extractor` inside the folder you opened
+- the `git clone` command in Step 4 will create a new folder named `mk8dx-video-result-extractor` inside the folder you opened
 
 ## Step 2. Check Git
 
@@ -90,13 +90,13 @@ Linux:
 Terminal Command:
 --------------
 sudo apt-get update
-sudo apt-get install python3.12 python3.12-venv python3-pip
+sudo apt-get install python3.12 python3.12-venv python3-pip ffmpeg
 --------------
 
 macOS:
 Terminal Command:
 --------------
-brew install python@3.12
+brew install python@3.12 ffmpeg
 --------------
 
 Important:
@@ -110,11 +110,21 @@ Run:
 
 Terminal Command:
 --------------
-git clone https://github.com/fromthelake/mk8dx-video-result-extractor
-cd "MK8DX Video Result Extractor"
+git clone https://github.com/fromthelake/mk8dx-video-result-extractor.git
+cd mk8dx-video-result-extractor
 --------------
 
 ## Step 5. Run setup
+
+Before setup, confirm FFmpeg is available:
+
+Linux/macOS:
+Terminal Command:
+--------------
+ffmpeg -version
+--------------
+
+Setup runs `--check`, and `--check` currently requires FFmpeg. If `ffmpeg -version` fails, install FFmpeg first and then rerun setup.
 
 Run:
 
@@ -136,22 +146,6 @@ This setup script:
 
 If setup succeeds:
 - continue to Step 6
-
-Optional:
-- install `ffmpeg` only if you want merge-video features or manual repair workflows
-
-Linux:
-Terminal Command:
---------------
-sudo apt-get update
-sudo apt-get install ffmpeg
---------------
-
-macOS:
-Terminal Command:
---------------
-brew install ffmpeg
---------------
 
 If setup fails:
 - read the terminal error
@@ -337,7 +331,7 @@ Terminal Command:
 --------------
 
 What it changes:
-- extraction also includes supported `.mp4`, `.mkv`, `.mkv`, `.mov`, `.avi`, and `.webm` files found in subfolders under `Input_Videos`
+- extraction also includes supported `.mp4`, `.mkv`, `.mov`, `.avi`, and `.webm` files found in subfolders under `Input_Videos`
 - OCR/export still behaves like `--all`, so existing historical frame groups can still be included
 
 Run only the current selected input set:
