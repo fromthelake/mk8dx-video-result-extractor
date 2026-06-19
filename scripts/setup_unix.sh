@@ -35,8 +35,12 @@ echo "Using Python interpreter: $VENV_PYTHON"
 ".venv/bin/python" -m pip install -e ".[gui]"
 
 if [[ ! -f "config/app_config.json" ]]; then
-  echo "Missing config/app_config.json. Restore it from git before running setup." >&2
-  exit 1
+  if [[ ! -f "config/app_config.example.json" ]]; then
+    echo "Missing config/app_config.example.json. Restore it from git before running setup." >&2
+    exit 1
+  fi
+  cp "config/app_config.example.json" "config/app_config.json"
+  echo "Created local config/app_config.json from config/app_config.example.json."
 fi
 
 ".venv/bin/mk8-local-play" --check

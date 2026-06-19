@@ -2,9 +2,18 @@
 .codex_tmp/
 .pip_tmp/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .idea/
 *.egg-info/
-app_config.json
+/config/app_config.json
+.env
+.env.*
+!.env.example
 file_list.txt
 
 # Local input videos

@@ -7,11 +7,12 @@ GitHub:
 
 ## Platform Status
 
-- Linux and macOS are intended desktop targets for the CLI and local desktop workflow.
-- Windows 11 is the actively benchmarked reference environment.
+- Linux: **UNKNOWN** in this stabilization pass. Setup is documented and should be verified on the target machine with `--check` and a scoped sample run.
+- macOS: **UNKNOWN** in this stabilization pass. CPU OCR is the expected path; CUDA is not available on Apple hardware.
+- Windows 11 is the actively benchmarked and currently verified reference environment.
 - iOS is not supported. This project depends on desktop Python, FFmpeg, OpenCV, EasyOCR, and local filesystem access.
 - Linux GPU OCR can work when the local `.venv` has a CUDA-enabled PyTorch build installed for that machine.
-- macOS runs CPU OCR by default. CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
+- Apple Metal/MPS acceleration is not currently wired into this project.
 - After setup, always run `.venv/bin/mk8-local-play --check` and then a scoped sample run before trusting a new Linux/macOS environment.
 
 ## Important
@@ -125,6 +126,7 @@ chmod +x ./scripts/setup_unix.sh
 
 This setup script:
 - creates or reuses the local `.venv` in this project folder
+- creates `config/app_config.json` from `config/app_config.example.json` if the local config is absent
 - uses `python3.12` by default and stops if the interpreter is not Python 3.12
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR

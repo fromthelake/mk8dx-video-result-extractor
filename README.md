@@ -36,10 +36,9 @@ Linux/macOS setup:
 - [docs/LINUX_MACOS_SETUP.md](./docs/LINUX_MACOS_SETUP.md)
 
 Platform status:
-- Windows 11 is the actively validated reference platform.
-- Linux and macOS are intended desktop targets and have a separate setup guide, but they should be validated with `--check` and a scoped sample run after dependency changes.
-- Linux/macOS setup is CPU-first. Linux can use CUDA OCR when the local `.venv` contains a CUDA-enabled PyTorch build; the Windows setup script installs that automatically, while Linux setup documents the optional CUDA PyTorch install step.
-- macOS is expected to run CPU OCR by default; CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
+- Windows 11: **PASS** for the current maintainer environment; `--check`, unit tests, and the demo asset path were verified there.
+- Linux/WSL: **UNKNOWN** in this stabilization pass. Setup is documented and CPU-first, but it must be verified on the target machine with `--check` and a scoped sample run.
+- macOS: **UNKNOWN** in this stabilization pass. CPU OCR is the expected path; CUDA is not available on Apple hardware, and Apple Metal/MPS acceleration is not currently wired into this project.
 - iOS is not a supported target. This is a desktop Python/FFmpeg/OpenCV/EasyOCR application, not a mobile app.
 
 Scan/debug tooling reference:
@@ -281,6 +280,7 @@ PowerShell Command:
 
 This setup script:
 - creates or reuses the local `.venv` in this project folder
+- creates `config/app_config.json` from `config/app_config.example.json` if the local config is absent
 - uses Python 3.12 specifically and stops if only a newer Python is installed
 - installs the app into that local `.venv`
 - installs the Python OCR dependencies, including EasyOCR
@@ -317,6 +317,7 @@ If the check succeeds, the project is ready to run entirely from:
 
 Screenshot export format:
 - extracted screenshots are controlled by `config/app_config.json` -> `export_image_format`
+- `config/app_config.json` is local and ignored by Git; fresh clones use `config/app_config.example.json` until setup creates the local file
 - accepted values are `jpg`, `jpeg`, and `png`
 - the current default is `jpg` for smaller exported frame files
 - use `png` if you want lossless frame exports for troubleshooting or comparison work
@@ -327,7 +328,7 @@ Headless debug toggle:
 - use `--debug` on `mk8-local-play.exe` or `python -m mk8dx_video_result_extractor.main` when you explicitly want debug CSV, debug workbook, and score-layout images for investigation
 
 Runtime GPU mode defaults:
-- `config/app_config.json` now defaults `execution_mode` to `cpu` and `easyocr_gpu_mode` to `auto`
+- `config/app_config.example.json` defaults `execution_mode` to `cpu` and `easyocr_gpu_mode` to `auto`; local overrides live in ignored `config/app_config.json`
 - `execution_mode` controls OpenCV extraction acceleration and accepts `auto`, `gpu`, or `cpu`
 - `easyocr_gpu_mode` controls EasyOCR and accepts `auto`, `gpu`, or `cpu`
 - extraction defaults to `cpu` because that is the fastest verified setting on this machine profile
@@ -514,8 +515,9 @@ PowerShell Command:
 What it does:
 - starts the desktop GUI (a Mario Kart 8 Deluxe themed PySide6/Qt window)
 
-The GUI is a cross-platform Qt application (Windows, Linux, macOS). It runs every
-long task in a separate process, so the window never freezes: you get a live,
+The GUI is a Qt desktop application intended for Windows, Linux, and macOS, but
+only Windows was verified in this stabilization pass. It runs every long task
+in a separate process, so the window never freezes: you get a live,
 colour-coded activity log, a Rainbow Road progress bar, a working Cancel button,
 and a start-light status indicator.
 
@@ -676,4 +678,20 @@ For the Linux/macOS setup guide, read:
 If you want the pipeline, templates, ROIs, and metadata documented for development or reproduction, read:
 - [docs/TECHNICAL_PIPELINE.md](./docs/TECHNICAL_PIPELINE.md)
 
+## Verification
+
+Official Windows test runner:
+
+PowerShell Command:
+--------------
+.\scripts\run_tests.ps1
+--------------
+
+Equivalent direct checks:
+- `.\.venv\Scripts\python.exe -m compileall mk8dx_video_result_extractor`
+- `.\.venv\Scripts\python.exe -m unittest discover`
+- `.\.venv\Scripts\mk8-local-play.exe --check`
+
+Optional heavy validation requires an explicit external baseline directory:
+- `.\.venv\Scripts\python.exe tools\validate_outputs.py --baseline-dir <baseline-dir>`
 

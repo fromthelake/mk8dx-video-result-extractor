@@ -71,8 +71,14 @@ if (-not (Test-Path $playExe)) {
     throw "Setup completed dependency install, but mk8-local-play.exe was not created in .venv\Scripts."
 }
 
-if (-not (Test-Path "config\app_config.json")) {
-    throw "Missing config\app_config.json. Restore it from git before running setup."
+$configPath = "config\app_config.json"
+$exampleConfigPath = "config\app_config.example.json"
+if (-not (Test-Path $configPath)) {
+    if (-not (Test-Path $exampleConfigPath)) {
+        throw "Missing $exampleConfigPath. Restore it from git before running setup."
+    }
+    Copy-Item $exampleConfigPath $configPath
+    Write-Host "Created local $configPath from $exampleConfigPath."
 }
 
 & $playExe --check

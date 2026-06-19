@@ -53,8 +53,13 @@ Minimum checks:
 
 ```bash
 python -m compileall mk8dx_video_result_extractor
+python -m unittest discover
 python -m mk8dx_video_result_extractor.main --check
 ```
+
+From a repo-local virtual environment, prefer the wrapper scripts:
+- Windows: `.\scripts\run_tests.ps1`
+- Linux/macOS: `./scripts/run_tests.sh`
 
 Useful functional checks:
 
@@ -77,6 +82,14 @@ Normal runtime data belongs in:
 - `Output_Results/`
 
 Curated benchmark or regression material should be stored outside this runtime-focused repository.
+
+Generated cache/temp cleanup:
+
+```powershell
+.\scripts\clean_generated.ps1
+```
+
+This removes Python cache folders and ignored temp benchmark folders such as `.codex_tmp/` and `.ab_runs/`. It does not remove `Input_Videos/`, `Output_Results/`, `.venv/`, or local config.
 
 ## Performance Work
 
