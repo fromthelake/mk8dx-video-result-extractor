@@ -35,6 +35,13 @@ Install these system tools first:
 - FFmpeg
 - internet access during setup, because Python dependencies are downloaded
 
+Official resource pages:
+
+- Git: https://git-scm.com/install/
+- Python: https://www.python.org/downloads/ - install a Python `3.12.x` release, not Python 3.13 or newer
+- FFmpeg: https://ffmpeg.org/download.html - package-manager installs are fine when they provide the `ffmpeg` command
+- PyTorch: https://pytorch.org/get-started/locally/ - setup normally chooses and installs the correct PyTorch package for you
+
 The app itself is installed only into the local `.venv` folder inside this project.
 Do not install `mk8-local-play` globally and do not add it to your system PATH.
 Setup scans your hardware and chooses a PyTorch package set before installing OCR dependencies. NVIDIA CUDA systems get the fast GPU path automatically; AMD, Intel, macOS, and no-GPU systems use the reliable CPU path unless you opt into an experimental mode.

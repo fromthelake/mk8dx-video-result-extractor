@@ -7,6 +7,7 @@ The format is intentionally simple and human-readable.
 ## [Unreleased]
 
 ### Fixed
+- Added official Git, Python, FFmpeg, and PyTorch resource links to the first-time setup docs.
 - Made setup choose PyTorch packages from a hardware scan instead of assuming every Windows user should install CUDA wheels.
 - Improved runtime diagnostics so `--check` reports CUDA, HIP/ROCm, MPS, and the selected EasyOCR backend more clearly.
 - Reworked first-time setup documentation so Windows, Linux, and macOS users start from a clear quick guide with accurate clone folders, FFmpeg requirements, and GPU expectations.
