@@ -248,6 +248,14 @@ QProgressBar::chunk {{
         stop:0 #ff3b3b, stop:0.17 #ff9e2c, stop:0.34 #ffe23b,
         stop:0.51 #4cd964, stop:0.68 #34a8ff, stop:0.85 #7a5cff, stop:1 #ff4ce0);
 }}
+QLabel#progressBadge {{
+    background: rgba(0, 0, 0, 0.74);
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 1px 12px;
+    font-size: 8.5pt;
+    font-weight: 600;
+}}
 
 QScrollBar:vertical {{
     background: transparent;

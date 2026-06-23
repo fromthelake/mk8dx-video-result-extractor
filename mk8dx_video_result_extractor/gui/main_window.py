@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -86,7 +87,6 @@ class MainWindow(QWidget):
 
         self._runner = PipelineRunner(core.project_python(), core.input_dir())
         self._runner.line.connect(self._on_line)
-        self._runner.progress.connect(self._on_progress)
         self._runner.started.connect(self._on_started)
         self._runner.finished.connect(self._on_finished)
 
@@ -112,8 +112,11 @@ class MainWindow(QWidget):
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self._build_left_column())
         splitter.addWidget(self._build_log_panel())
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 4)
+        # Left controls open at their minimum visible width; the activity log
+        # takes all remaining space. The stretch factors keep that bias on resize.
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([self._left_min_width, max(1, 1060 - self._left_min_width)])
         splitter.setChildrenCollapsible(False)
         outer.addWidget(splitter, stretch=1)
 
@@ -140,6 +143,13 @@ class MainWindow(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        # Never let the splitter drag the left column so narrow that its controls
+        # clip. The content's own minimum size hint accounts for the active font
+        # and display scaling, so this stays correct on HiDPI / large-text setups.
+        # (+22 leaves room for the vertical scrollbar.) The window also *opens* at
+        # exactly this width so the log gets all remaining space from the start.
+        self._left_min_width = container.minimumSizeHint().width() + 22
+        scroll.setMinimumWidth(self._left_min_width)
         return scroll
 
     def _build_prepare_card(self) -> QFrame:
@@ -185,6 +195,10 @@ class MainWindow(QWidget):
             button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             controls.addWidget(button)
         layout.addLayout(controls)
+
+        self._subfolders_check = QCheckBox("Also look in subfolders of Input_Videos")
+        self._subfolders_check.toggled.connect(self._reload_video_list)
+        layout.addWidget(self._subfolders_check)
         return frame
 
     def _build_run_card(self) -> QFrame:
@@ -210,11 +224,11 @@ class MainWindow(QWidget):
         # Individual stages, shown as an ordered Extract → OCR sequence.
         steps_row = QHBoxLayout()
         steps_row.setSpacing(6)
-        self._extract_btn = QPushButton("Extract frames")
+        self._extract_btn = QPushButton("Extract frames only")
         self._extract_btn.clicked.connect(self._run_extract)
         arrow = QLabel("→")
         arrow.setObjectName("stageArrow")
-        self._ocr_btn = QPushButton("OCR && export")
+        self._ocr_btn = QPushButton("OCR && export only")
         self._ocr_btn.clicked.connect(self._run_ocr)
         steps_row.addWidget(self._extract_btn, stretch=1)
         steps_row.addWidget(arrow)
@@ -227,14 +241,16 @@ class MainWindow(QWidget):
             "🏁", "Results",
             "Open the exported workbook or the extracted frames.",
         )
-        row = QHBoxLayout()
+        # Stacked vertically so all three fit (with full labels) in the narrow
+        # left column instead of being squeezed into one cramped row.
         open_excel = QPushButton("📊  Open Latest Excel")
         open_excel.clicked.connect(self._open_excel)
+        open_results = QPushButton("📁  Open Results Folder")
+        open_results.clicked.connect(self._open_results_folder)
         open_frames = QPushButton("🖼  Open Frames")
         open_frames.clicked.connect(self._open_frames)
-        row.addWidget(open_excel)
-        row.addWidget(open_frames)
-        layout.addLayout(row)
+        for button in (open_excel, open_results, open_frames):
+            layout.addWidget(button)
         return frame
 
     def _build_settings_card(self) -> QFrame:
@@ -247,10 +263,6 @@ class MainWindow(QWidget):
         title = QLabel("Settings & cleanup")
         title.setObjectName("cardTitle")
         layout.addWidget(title)
-
-        self._subfolders_check = QCheckBox("Also look in subfolders of Input_Videos")
-        self._subfolders_check.toggled.connect(self._reload_video_list)
-        layout.addWidget(self._subfolders_check)
 
         execution_mode, easyocr_mode = core.current_modes()
         modes_row = QHBoxLayout()
@@ -321,12 +333,21 @@ class MainWindow(QWidget):
         footer = QVBoxLayout()
         footer.setSpacing(8)
 
+        # The progress bar and an end-of-run badge share one cell so the badge can
+        # sit centred on top of the Rainbow Road fill with its own dark backing.
+        progress_holder = QWidget()
+        progress_grid = QGridLayout(progress_holder)
+        progress_grid.setContentsMargins(0, 0, 0, 0)
         self._progress = QProgressBar()
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setTextVisible(True)
-        self._progress.setFormat("")
-        footer.addWidget(self._progress)
+        self._progress.setTextVisible(False)
+        progress_grid.addWidget(self._progress, 0, 0)
+        self._progress_badge = QLabel("")
+        self._progress_badge.setObjectName("progressBadge")
+        self._progress_badge.setVisible(False)
+        progress_grid.addWidget(self._progress_badge, 0, 0, Qt.AlignCenter)
+        footer.addWidget(progress_holder)
 
         status_row = QHBoxLayout()
         self._start_light = StartLight()
@@ -433,6 +454,9 @@ class MainWindow(QWidget):
     def _open_video_folder(self) -> None:
         self._open_path(core.input_dir(), "Input_Videos folder does not exist.")
 
+    def _open_results_folder(self) -> None:
+        self._open_path(core.output_dir(), "The Output_Results folder does not exist yet.")
+
     def _open_frames(self) -> None:
         self._open_path(core.frames_dir(), "The frames folder does not exist yet.")
 
@@ -537,18 +561,14 @@ class MainWindow(QWidget):
     def _on_started(self, label: str) -> None:
         self._set_busy(True)
         self._set_status("running", label)
-        self._progress.setRange(0, 0)  # indeterminate until a percentage arrives
-        self._progress.setFormat("")
+        # Keep the Rainbow Road bar in its indeterminate sweep for the whole run;
+        # the marquee is purely "work is happening", no percentages to compute.
+        self._progress.setRange(0, 0)
+        self._progress_badge.setVisible(False)
         self._run_start_time = time.monotonic()
         self._elapsed_timer.start()
         self._log.reset_styles()
         self._log.append_ansi(f"\n=== ▶ {label} ===")
-
-    def _on_progress(self, percent: int) -> None:
-        if self._progress.maximum() == 0:
-            self._progress.setRange(0, 100)
-        self._progress.setValue(percent)
-        self._progress.setFormat(f"{percent}%")
 
     def _on_finished(self, success: bool, exit_code: int) -> None:
         self._elapsed_timer.stop()
@@ -556,19 +576,25 @@ class MainWindow(QWidget):
         self._progress.setRange(0, 100)
         if success:
             self._progress.setValue(100)
-            self._progress.setFormat("🏁 Finished")
+            self._show_progress_badge("🏁 Finished")
             self._set_status("done", "Finished")
             self._log.append_ansi("=== 🏁 Completed successfully ===\n")
         elif exit_code == 0:
             self._progress.setValue(0)
-            self._progress.setFormat("")
+            self._show_progress_badge("■ Cancelled")
             self._set_status("cancelled", "Cancelled")
             self._log.append_ansi("=== ■ Cancelled ===\n")
         else:
             self._progress.setValue(0)
-            self._progress.setFormat("Failed")
+            self._show_progress_badge(f"✖ Failed (exit {exit_code})")
             self._set_status("error", f"Failed (exit {exit_code})")
             self._log.append_ansi(f"=== ✖ Failed with exit code {exit_code} ===\n")
+
+    def _show_progress_badge(self, text: str) -> None:
+        """Show an end-of-run badge centred on the bar with its own dark backing,
+        so the text stays readable over the bright Rainbow Road fill."""
+        self._progress_badge.setText(text)
+        self._progress_badge.setVisible(True)
 
     def _set_busy(self, busy: bool) -> None:
         for button in self._busy_buttons:

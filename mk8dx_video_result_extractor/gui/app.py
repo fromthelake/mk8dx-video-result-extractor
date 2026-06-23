@@ -33,5 +33,5 @@ def run() -> int:
 
     window = MainWindow()
     set_window_icon(window)
-    window.show()
+    window.showMaximized()
     return app.exec()

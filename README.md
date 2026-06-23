@@ -747,10 +747,11 @@ The window guides you through the run order top to bottom:
   - `Also look in subfolders of Input_Videos` includes videos in subfolders
 - `3 Run the analysis`
   - `FULL RUN` runs extraction + OCR + export for the ticked videos
-  - `Extract frames` and `OCR & export` run each stage on its own
+  - `Extract frames only` and `OCR & export only` run each stage on its own
   - `Cancel` stops a running job
 - `Results`
   - `Open Latest Excel` opens the most recent exported workbook
+  - `Open Results Folder` opens the `Output_Results` folder
   - `Open Frames` opens the extracted race screenshots
 - `Settings & cleanup`
   - `Extraction` / `EasyOCR` mode (AUTO / GPU / CPU), saved between sessions. EasyOCR GPU means PyTorch CUDA/ROCm, with MPS only when explicitly forced for testing.
