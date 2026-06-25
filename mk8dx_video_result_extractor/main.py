@@ -2871,6 +2871,25 @@ def launch_gui() -> int:
     return 0
 
 
+def print_gui_console_notice() -> None:
+    """Explain that this terminal is the GUI's lifeline before it goes quiet.
+
+    Once the GUI starts, its event loop blocks this process and nothing more is
+    printed here until the window closes. Without a hint, the silent terminal
+    looks idle/finished, so users close it — which kills the GUI. Spell out that
+    the window is opening and that this terminal must stay open.
+    """
+    print("Mario Kart 8 Result Extractor")
+    print("Opening the desktop GUI window...")
+    print()
+    print("  Keep this terminal window open while you use the app.")
+    print("  Closing it will stop the program. To quit, close the GUI itself.")
+    print()
+    # Flush so the notice appears immediately, before the GUI loop takes over
+    # and stops returning control to this process.
+    sys.stdout.flush()
+
+
 def launch_gui_app() -> int:
     """Launch the desktop GUI.
 
@@ -2879,6 +2898,7 @@ def launch_gui_app() -> int:
     installed or when ``MK8_CLASSIC_GUI`` is set, so the GUI still works on a
     minimal install.
     """
+    print_gui_console_notice()
     force_classic = os.environ.get("MK8_CLASSIC_GUI", "").strip().lower() in {"1", "true", "yes"}
     if not force_classic:
         try:
@@ -2999,6 +3019,9 @@ def main() -> int:
             )
         return 0
     if args.classic_gui:
+        # launch_gui_app() prints this for the default path; the explicit
+        # classic path skips that helper, so emit the same notice here.
+        print_gui_console_notice()
         return launch_gui()
     return launch_gui_app()
 
